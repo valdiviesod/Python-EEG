@@ -3229,18 +3229,59 @@ body::before {
     display: flex;
     align-items: center;
     justify-content: center;
-    opacity: 0;
+    opacity: 0.92;
     transition: opacity 0.2s, background 0.2s, transform 0.2s;
     z-index: 2;
 }
 
-.capture-thumb-card:hover .capture-thumb-delete {
-    opacity: 1;
+.capture-thumb-edit {
+    position: absolute;
+    top: 4px;
+    right: 34px;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(139, 92, 246, 0.75);
+    color: #fff;
+    font-size: 0.7rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.92;
+    transition: opacity 0.2s, background 0.2s, transform 0.2s;
+    z-index: 2;
+}
+
+.capture-thumb-edit:hover {
+    background: rgba(139, 92, 246, 0.95);
+    transform: scale(1.08);
 }
 
 .capture-thumb-delete:hover {
     background: rgba(220, 38, 38, 0.95);
-    transform: scale(1.15);
+    transform: scale(1.08);
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .capture-thumb-edit,
+    .capture-thumb-delete {
+        opacity: 0;
+    }
+
+    .capture-thumb-card:hover .capture-thumb-edit,
+    .capture-thumb-card:hover .capture-thumb-delete {
+        opacity: 1;
+    }
+}
+
+.capture-thumb-card.capture-thumb-empty {
+    opacity: 0.82;
+}
+
+.capture-thumb-card.capture-thumb-empty .capture-thumb-canvas-wrap {
+    border: 1px dashed rgba(139, 92, 246, 0.25);
 }
 
 .capture-thumb-label {
@@ -3266,6 +3307,62 @@ body::before {
 .capture-thumb-state {
     color: rgba(236, 72, 153, 0.85);
     font-size: 0.65rem;
+}
+
+.capture-thumb-state.is-empty {
+    color: rgba(236, 72, 153, 0.45);
+    font-style: italic;
+}
+
+.edit-state-modal {
+    text-align: left;
+}
+
+.edit-state-modal .delete-modal-icon,
+.edit-state-modal h3,
+.edit-state-modal p {
+    text-align: center;
+}
+
+.edit-state-input {
+    width: 100%;
+    margin-top: 0.75rem;
+    padding: 0.65rem 0.85rem;
+    border-radius: 10px;
+    border: 1px solid rgba(139, 92, 246, 0.25);
+    background: rgba(5, 3, 10, 0.55);
+    color: var(--text);
+    font-size: 0.95rem;
+}
+
+.edit-state-input:focus {
+    outline: none;
+    border-color: rgba(139, 92, 246, 0.55);
+    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+}
+
+.edit-state-suggestions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.65rem;
+    min-height: 0;
+}
+
+.edit-state-chip {
+    border: 1px solid rgba(139, 92, 246, 0.25);
+    background: rgba(139, 92, 246, 0.08);
+    color: #E8DFFF;
+    border-radius: 999px;
+    padding: 0.25rem 0.65rem;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+}
+
+.edit-state-chip:hover {
+    background: rgba(139, 92, 246, 0.2);
+    border-color: rgba(139, 92, 246, 0.45);
 }
 
 @media (max-width: 500px) {

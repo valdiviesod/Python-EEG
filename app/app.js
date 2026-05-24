@@ -2013,22 +2013,15 @@
         if (gardenPulse2d) { gardenPulse2d.stop(); gardenPulse2d = null; }
         stopGardenMidiPlayback();
 
-        const embeddedCaptures = profileData._profileMeta?.captures || profileData.captures || [];
-        if (embeddedCaptures.length) {
-            const captureCount = embeddedCaptures.length;
-            gardenModalMeta.textContent = `${captureCount} captura${captureCount !== 1 ? 's' : ''} · última: ${embeddedCaptures[0]?.capture_timestamp || '—'}`;
-            renderProfileCapturesList(embeddedCaptures);
-            return;
-        }
-
-        // Fallback for old profile payloads.
         try {
             const resp = await fetch(`/api/profiles/captures?name=${encodeURIComponent(profileName)}`);
             const data = await resp.json();
-            if (!data.ok) throw new Error(data.error);
+            if (!data.ok) throw new Error(data.error || 'No se pudieron cargar las capturas');
 
             const captureCount = data.captures.length;
-            gardenModalMeta.textContent = `${captureCount} captura${captureCount !== 1 ? 's' : ''} · última: ${data.captures[0]?.capture_timestamp || '—'}`;
+            gardenModalMeta.textContent = captureCount
+                ? `${captureCount} · última: ${data.captures[0]?.capture_timestamp || '—'}`
+                : 'Sin capturas';
 
             renderProfileCapturesList(data.captures);
         } catch (err) {
@@ -2036,6 +2029,143 @@
             const listEl = document.getElementById('profile-captures-list');
             if (listEl) listEl.innerHTML = '<p class="captures-loading">Error al cargar capturas.</p>';
         }
+    }
+
+    let captureThumbObserver = null;
+    let captureThumbQueue = Promise.resolve();
+
+    function captureHasEegData(data) {
+        const channels = data?.eeg_channels;
+        if (!channels || typeof channels !== 'object') return false;
+        return Object.values(channels).some(arr => Array.isArray(arr) && arr.length >= 32);
+    }
+
+    function fitCaptureThumbCanvas(canvas) {
+        const wrap = canvas?.parentElement;
+        if (!wrap) return;
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const rect = wrap.getBoundingClientRect();
+        const w = wrap.clientWidth || rect.width || 160;
+        const h = wrap.clientHeight || rect.height || w;
+        const size = Math.max(120, Math.round(Math.min(w, h) || w));
+        const bitmapW = Math.round(size * dpr);
+        const bitmapH = Math.round(size * dpr);
+        if (canvas.width !== bitmapW || canvas.height !== bitmapH) {
+            canvas.width = bitmapW;
+            canvas.height = bitmapH;
+            const ctx = canvas.getContext('2d');
+            if (ctx) ctx.setTransform(1, 0, 0, 1, 0, 0);
+        }
+        canvas.style.width = '100%';
+        canvas.style.height = '100%';
+    }
+
+    function drawCaptureThumbFallback(canvas, message = 'Sin señal') {
+        fitCaptureThumbCanvas(canvas);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        const w = canvas.width;
+        const h = canvas.height;
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, w, h);
+        const grd = ctx.createRadialGradient(w * 0.5, h * 0.45, 0, w * 0.5, h * 0.5, w * 0.55);
+        grd.addColorStop(0, 'rgba(139,92,246,0.35)');
+        grd.addColorStop(1, 'rgba(5,3,10,0.92)');
+        ctx.fillStyle = grd;
+        ctx.fillRect(0, 0, w, h);
+        ctx.fillStyle = 'rgba(220,210,255,0.72)';
+        ctx.font = `600 ${Math.max(11, Math.round(w * 0.08))}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(message, w / 2, h / 2);
+    }
+
+    function queueCaptureThumbnail(canvas, filename, idx) {
+        captureThumbQueue = captureThumbQueue
+            .then(() => renderCaptureThumbnail(canvas, filename, idx))
+            .catch(err => console.error('Thumbnail queue error:', err));
+    }
+
+    function observeCaptureThumbnail(canvas, filename, idx) {
+        if (!('IntersectionObserver' in window)) {
+            requestAnimationFrame(() => queueCaptureThumbnail(canvas, filename, idx));
+            return;
+        }
+        if (!captureThumbObserver) {
+            captureThumbObserver = new IntersectionObserver((entries) => {
+                entries.forEach((entry) => {
+                    if (!entry.isIntersecting) return;
+                    const target = entry.target;
+                    const meta = target._thumbMeta;
+                    captureThumbObserver.unobserve(target);
+                    if (meta) queueCaptureThumbnail(target, meta.filename, meta.idx);
+                });
+            }, { root: null, rootMargin: '80px', threshold: 0.05 });
+        }
+        canvas._thumbMeta = { filename, idx };
+        captureThumbObserver.observe(canvas);
+    }
+
+    async function refreshProfileCapturesList() {
+        if (!gardenCurrentProfileName) return;
+        try {
+            const resp = await fetch(`/api/profiles/captures?name=${encodeURIComponent(gardenCurrentProfileName)}`);
+            const data = await resp.json();
+            if (!data.ok) throw new Error(data.error || 'No se pudieron cargar las capturas');
+
+            const captureCount = data.captures.length;
+            gardenModalMeta.textContent = captureCount
+                ? `${captureCount} · última: ${data.captures[0]?.capture_timestamp || '—'}`
+                : 'Sin capturas';
+
+            renderProfileCapturesList(data.captures);
+        } catch (err) {
+            console.error('Error refreshing profile captures:', err);
+        }
+    }
+
+    function readCaptureThumbState(card) {
+        const stateEl = card?.querySelector('.capture-thumb-state');
+        if (!stateEl || stateEl.classList.contains('is-empty')) return '';
+        return stateEl.textContent.trim();
+    }
+
+    async function saveCaptureUserState(filename, userState) {
+        const payload = { filename, userState };
+        const endpoints = [
+            '/api/profiles/capture/update-state',
+            '/api/garden/update-state',
+        ];
+
+        let lastError = 'Error al guardar';
+        for (const endpoint of endpoints) {
+            const resp = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            const data = await resp.json().catch(() => ({}));
+
+            if (resp.ok && data.ok) return data;
+
+            lastError = data.error || lastError;
+            if (lastError === 'Endpoint no encontrado') continue;
+            throw new Error(lastError);
+        }
+
+        throw new Error(
+            lastError === 'Endpoint no encontrado'
+                ? 'Servidor desactualizado. Reinicia app_server.py y vuelve a intentar.'
+                : lastError
+        );
+    }
+
+    function formatCaptureThumbState(state) {
+        const text = (state || '').trim();
+        if (text) {
+            return `<span class="capture-thumb-state">${escapeHtml(text)}</span>`;
+        }
+        return '<span class="capture-thumb-state is-empty">energía</span>';
     }
 
     function renderProfileCapturesList(captures) {
@@ -2059,12 +2189,11 @@
             const card = document.createElement('div');
             card.className = 'capture-thumb-card';
             card.dataset.filename = cap.filename;
+            card.dataset.userState = state;
 
             const canvasWrap = document.createElement('div');
             canvasWrap.className = 'capture-thumb-canvas-wrap';
             const canvas = document.createElement('canvas');
-            canvas.width = 200;
-            canvas.height = 200;
             canvas.className = 'capture-thumb-canvas';
             canvasWrap.appendChild(canvas);
 
@@ -2078,10 +2207,23 @@
             });
             canvasWrap.appendChild(deleteBtn);
 
+            const editBtn = document.createElement('button');
+            editBtn.className = 'capture-thumb-edit';
+            editBtn.innerHTML = '✏️';
+            editBtn.title = 'Editar energía';
+            editBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                openEditCaptureStateModal(
+                    cap.filename,
+                    card.dataset.userState || readCaptureThumbState(card)
+                );
+            });
+            canvasWrap.appendChild(editBtn);
+
             const label = document.createElement('div');
             label.className = 'capture-thumb-label';
             label.innerHTML = `<span class="capture-thumb-date">${escapeHtml(ts)}</span>`
-                + (state ? `<span class="capture-thumb-state">${escapeHtml(state)}</span>` : '');
+                + formatCaptureThumbState(state);
 
             card.appendChild(canvasWrap);
             card.appendChild(label);
@@ -2089,22 +2231,42 @@
 
             card.addEventListener('click', () => loadCaptureIntoModal(cap.filename));
 
-            renderCaptureThumbnail(canvas, cap.filename, idx);
+            if (!cap.total_samples || cap.total_samples < 32) {
+                requestAnimationFrame(() => drawCaptureThumbFallback(canvas, 'Sin señal'));
+                card.classList.add('capture-thumb-empty');
+            } else {
+                observeCaptureThumbnail(canvas, cap.filename, idx);
+            }
         });
     }
 
     async function renderCaptureThumbnail(canvas, filename, idx) {
         try {
+            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            fitCaptureThumbCanvas(canvas);
+
             const resp = await fetch(`/api/garden/file?name=${encodeURIComponent(filename)}`);
-            if (!resp.ok) return;
+            if (!resp.ok) {
+                drawCaptureThumbFallback(canvas, resp.status === 404 ? 'No encontrada' : 'Error');
+                return;
+            }
             const data = await resp.json();
+            if (!captureHasEegData(data)) {
+                drawCaptureThumbFallback(canvas, 'Sin señal');
+                canvas.closest('.capture-thumb-card')?.classList.add('capture-thumb-empty');
+                return;
+            }
+
+            fitCaptureThumbCanvas(canvas);
             const analyzer = new EEGBandAnalyzer(data);
             const pulse = new LavaPulse(canvas, analyzer);
             pulse.t = pulse._startFrame + idx * 137;
-            for (let i = 0; i < 5; i++) pulse._drawSafe();
+            pulse.ft = pulse.t / 60;
+            for (let i = 0; i < 8; i++) pulse._drawSafe();
             pulse.stop();
         } catch (err) {
-            console.error('Thumbnail render error:', err);
+            console.error('Thumbnail render error:', filename, err);
+            drawCaptureThumbFallback(canvas, 'Error');
         }
     }
 
@@ -2492,6 +2654,7 @@
 
     async function playGardenMidi(captureData) {
         if (!captureData || typeof Midi === 'undefined') return;
+        if (!captureHasEegData(captureData)) return;
 
         // Snapshot the generation counter so we can detect cancellation during awaits
         const startLoopId = gardenMidiLoopId;
@@ -2731,6 +2894,127 @@
             }
         });
     }
+
+    // ── Garden: Edit capture state label (text under date) ──
+    const editStateModal = document.getElementById('edit-state-modal');
+    const editStateInput = document.getElementById('edit-state-input');
+    const editStateSuggestions = document.getElementById('edit-state-suggestions');
+    const editStateBtnCancel = document.getElementById('edit-state-btn-cancel');
+    const editStateBtnSave = document.getElementById('edit-state-btn-save');
+    let pendingEditStateFilename = null;
+
+    async function loadEditStateSuggestions(currentState) {
+        if (!editStateSuggestions || !gardenCurrentProfileName) {
+            if (editStateSuggestions) editStateSuggestions.innerHTML = '';
+            return;
+        }
+
+        try {
+            const resp = await fetch(`/api/profiles/list`);
+            const data = await resp.json();
+            if (!data.ok) throw new Error(data.error || 'No se pudieron cargar sugerencias');
+
+            const profile = (data.profiles || []).find(
+                p => p.profile_name === gardenCurrentProfileName
+            );
+            const states = (profile?.states || [])
+                .map(s => (s || '').trim())
+                .filter(Boolean)
+                .filter(s => s !== currentState);
+
+            editStateSuggestions.innerHTML = '';
+            if (!states.length) return;
+
+            states.forEach((state) => {
+                const chip = document.createElement('button');
+                chip.type = 'button';
+                chip.className = 'edit-state-chip';
+                chip.textContent = state;
+                chip.addEventListener('click', () => {
+                    if (editStateInput) editStateInput.value = state;
+                });
+                editStateSuggestions.appendChild(chip);
+            });
+        } catch (err) {
+            console.warn('No se pudieron cargar sugerencias de energía:', err);
+            editStateSuggestions.innerHTML = '';
+        }
+    }
+
+    function openEditCaptureStateModal(filename, currentState = '') {
+        pendingEditStateFilename = filename;
+        if (editStateInput) editStateInput.value = (currentState || '').trim();
+        if (editStateModal) editStateModal.style.display = 'flex';
+        void loadEditStateSuggestions((currentState || '').trim());
+        requestAnimationFrame(() => editStateInput?.focus());
+    }
+
+    function closeEditCaptureStateModal() {
+        if (editStateModal) editStateModal.style.display = 'none';
+        pendingEditStateFilename = null;
+        if (editStateSuggestions) editStateSuggestions.innerHTML = '';
+    }
+
+    function updateCaptureThumbStateLabel(filename, userState) {
+        const card = document.querySelector(`.capture-thumb-card[data-filename="${CSS.escape(filename)}"]`);
+        if (!card) return;
+        card.dataset.userState = userState || '';
+        const label = card.querySelector('.capture-thumb-label');
+        if (!label) return;
+        const dateEl = label.querySelector('.capture-thumb-date');
+        const dateHtml = dateEl ? dateEl.outerHTML : '';
+        label.innerHTML = dateHtml + formatCaptureThumbState(userState);
+    }
+
+    editStateBtnCancel?.addEventListener('click', closeEditCaptureStateModal);
+
+    editStateModal?.addEventListener('click', (e) => {
+        if (e.target === editStateModal) closeEditCaptureStateModal();
+    });
+
+    editStateInput?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            editStateBtnSave?.click();
+        }
+    });
+
+    editStateBtnSave?.addEventListener('click', async () => {
+        if (!pendingEditStateFilename) return;
+        const userState = editStateInput?.value.trim() || '';
+        if (!userState) {
+            alert('Escribe una energía para esta captura.');
+            editStateInput?.focus();
+            return;
+        }
+
+        editStateBtnSave.disabled = true;
+        editStateBtnSave.textContent = 'Guardando...';
+        try {
+            const savedFilename = pendingEditStateFilename;
+            const data = await saveCaptureUserState(savedFilename, userState);
+
+            closeEditCaptureStateModal();
+            updateCaptureThumbStateLabel(savedFilename, userState);
+
+            const card = document.querySelector(`.capture-thumb-card[data-filename="${CSS.escape(savedFilename)}"]`);
+            if (card) card.dataset.userState = userState;
+
+            gardenLoaded = false;
+
+            if (gardenCurrentJson?.filename === savedFilename) {
+                if (!gardenCurrentJson.metadata) gardenCurrentJson.metadata = {};
+                gardenCurrentJson.metadata.user_state = userState;
+            }
+
+            await refreshProfileCapturesList();
+        } catch (err) {
+            alert('Error al guardar: ' + err.message);
+        } finally {
+            editStateBtnSave.disabled = false;
+            editStateBtnSave.textContent = 'Guardar';
+        }
+    });
 
     // ── Garden: Delete capture (individual, from captures list) ──
     const deleteModal = document.getElementById('delete-modal');

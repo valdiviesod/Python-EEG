@@ -118,6 +118,34 @@ function hexToRGB(hex) {
     };
 }
 
+function rgbToHsl(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    let h = 0;
+    let s = 0;
+    const l = (max + min) / 2;
+    if (max !== min) {
+        const d = max - min;
+        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+        switch (max) {
+            case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
+            case g: h = ((b - r) / d + 2) / 6; break;
+            default: h = ((r - g) / d + 4) / 6; break;
+        }
+    }
+    return { h: h * 360, s: s * 100, l: l * 100 };
+}
+
+function hashHueShift(seed, spread = 0.14) {
+    if (!seed) return 0;
+    let hash = 0;
+    for (let i = 0; i < seed.length; i++) {
+        hash = ((hash << 5) - hash + seed.charCodeAt(i)) | 0;
+    }
+    return ((hash % 1000) / 1000 - 0.5) * spread * 360;
+}
+
 // ─── Simple FFT Implementation (radix-2 Cooley-Tukey) ────────────────────────
 function fft(re, im) {
     const n = re.length;
@@ -470,21 +498,67 @@ class EEGBandAnalyzer {
     // (center_freq²) so all bands get equal visual weight at baseline, and
     // deviations from baseline — which encode the actual brain state — become
     // visible as distinct shapes and proportions.
+    // Delta damp alone pushed beta/gamma → all peach. Use balanced weights +
+    // softmax so each capture spreads across bands; only real deviations win.
     _normalizeBands() {
-        // Center frequencies (geometric mean of band edges)
+        const BAND_VISUAL_WEIGHT = [0.61, 0.95, 1.0, 0.76, 0.58];
+        const SPECTRAL_EXP = 1.58;
+        const SOFTMAX_TEMP = 2.15;
         const centerFreqs = BANDS.map(b => Math.sqrt(b.low * b.high));
-        // Compensation: multiply raw power by f_center² to flatten 1/f² spectrum
-        const compensated = this.bandPowers.map((p, i) => p * centerFreqs[i] * centerFreqs[i]);
-        const compTotal = compensated.reduce((a, b) => a + b, 0) || 1;
-        const rawTotal  = this.bandPowers.reduce((a, b) => a + b, 0) || 1;
+        const compensated = this.bandPowers.map((p, i) =>
+            p * Math.pow(centerFreqs[i], SPECTRAL_EXP) * BAND_VISUAL_WEIGHT[i]
+        );
+        const logs = compensated.map(v => Math.log(Math.max(v, 1e-18)));
+        const maxLog = Math.max(...logs);
+        const softmax = logs.map(l => Math.exp((l - maxLog) * SOFTMAX_TEMP));
+        const softTotal = softmax.reduce((a, b) => a + b, 0) || 1;
+        const rawTotal = this.bandPowers.reduce((a, b) => a + b, 0) || 1;
 
         return this.bandPowers.map((p, i) => ({
             ...BANDS[i],
             absolutePower: p,
-            relativePower: p / rawTotal,                          // true physics ratio (for emotion metrics)
-            percentage: (compensated[i] / compTotal) * 100,       // perceptually balanced for display
-            visualSize: Math.sqrt(compensated[i] / compTotal),    // sqrt for gentle visual scaling
+            relativePower: p / rawTotal,
+            percentage: (softmax[i] / softTotal) * 100,
+            visualSize: Math.sqrt(softmax[i] / softTotal),
         }));
+    }
+
+    // Weighted blend of all 5 band colors — no single hue owns every pulse.
+    static blendVisualPalette(bands, seed = '') {
+        const list = bands || [];
+        if (!list.length) {
+            return { dominant: 'alpha', main: '#EC4899', deep: '#BE185D', bright: '#F9A8D4' };
+        }
+
+        let r = 0;
+        let g = 0;
+        let b = 0;
+        let total = 0;
+        let dominant = list[0];
+        for (const band of list) {
+            if ((band.percentage || 0) > (dominant.percentage || 0)) dominant = band;
+            let w = Math.max(0.07, (band.percentage || 0) / 100);
+            if (band.key === 'beta') w *= 0.90;
+            const rgb = hexToRGB(band.color || '#FFFFFF');
+            r += rgb.r * w;
+            g += rgb.g * w;
+            b += rgb.b * w;
+            total += w;
+        }
+        r /= total;
+        g /= total;
+        b /= total;
+
+        let hsl = rgbToHsl(r, g, b);
+        hsl.h = (hsl.h + hashHueShift(seed) + 360) % 360;
+        hsl.s = clamp(hsl.s * 1.06 + 4, 42, 92);
+        hsl.l = clamp(hsl.l, 36, 58);
+
+        const main = hslToHex(hsl.h, hsl.s, hsl.l);
+        const deep = hslToHex(hsl.h, clamp(hsl.s + 6, 0, 100), clamp(hsl.l * 0.52, 0, 100));
+        const bright = hslToHex(hsl.h, clamp(hsl.s * 0.82, 0, 100), clamp(hsl.l * 1.28 + 8, 0, 100));
+
+        return { dominant: dominant.key, main, deep, bright };
     }
 
     // ── Emotion Metrics (composite sensations from band ratios) ─────────────
@@ -535,10 +609,10 @@ class EEGBandAnalyzer {
         const bands = this.normalizedBands;
         const s = this.channelStats;
 
-        // Dominant band
+        // Dominant band — use compensated percentage so delta drift does not always win
         let maxIdx = 0;
         for (let i = 1; i < bands.length; i++) {
-            if (bands[i].relativePower > bands[maxIdx].relativePower) maxIdx = i;
+            if (bands[i].percentage > bands[maxIdx].percentage) maxIdx = i;
         }
         const dominant = bands[maxIdx];
 
@@ -611,7 +685,6 @@ class EEGBandAnalyzer {
         const petalCounts = [8, 10, 13, 16, 20];
 
         const layers = bands.map((band, i) => {
-            const power = band.relativePower;
             const vis = band.visualSize;
             const petalLength = lerp(0.15, 0.45, clamp(vis * 1.5, 0, 1));
             const lengthBoost = lerp(1.0, 1.32, clamp((petalLength - 0.28) / 0.17, 0, 1));
@@ -619,12 +692,12 @@ class EEGBandAnalyzer {
             return {
                 band: band,
                 petalCount: petalCounts[i],
-                // Petal length: proportional to relative power
+                // Petal length: proportional to compensated visual size
                 petalLength: petalLength,
                 // Petal width: delta=wide, gamma=narrow + extra width for longer petals
                 petalWidth: lerp(0.12, 0.04, i / 4) * lengthBoost,
-                // Petal height (3D): proportional to power
-                petalHeight: lerp(0.1, 0.8, clamp(power * 3, 0, 1)),
+                // Petal height (3D): compensated size, not raw delta-heavy relativePower
+                petalHeight: lerp(0.1, 0.8, clamp(vis * 1.85, 0, 1)),
                 // Inner radius: layers from center outward
                 innerRadius: lerp(0.08, 0.04, i / 4),
                 // Rotation offset
@@ -666,6 +739,10 @@ class EEGBandAnalyzer {
                 deduplicated: q.deduplicated || false,
             },
             bands: this.normalizedBands,
+            visualPalette: EEGBandAnalyzer.blendVisualPalette(
+                this.normalizedBands,
+                this.metadata.capture_timestamp || this.metadata.profile_name || ''
+            ),
             emotionMetrics: this.emotionMetrics,
             profile: this.profile,
             pulseParams: this.pulseParams,

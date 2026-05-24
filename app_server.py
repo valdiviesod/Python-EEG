@@ -8,9 +8,10 @@ Integra pulse_local_server.py en un solo proceso.
 - Capture API: POST /api/capture/start | /api/capture/stop
                GET  /api/capture/status | /api/capture/stream | /api/capture/download-json
 - Garden API:  GET  /api/garden/list | /api/garden/file?name=...
-               POST /api/garden/upload
+               POST /api/garden/upload | /api/garden/update-state
 - Profiles API: GET  /api/profiles/list | /api/profiles/captures | /api/profiles/representative
                 POST /api/profiles/rename | /api/profiles/delete | /api/profiles/capture/delete
+                       /api/profiles/capture/update-state
 - MIDI API:    POST /api/json-to-midi
 """
 
@@ -66,6 +67,38 @@ def get_captures_dir() -> Path:
     if chosen != primary:
         print(f'⚠️  Sin permisos en captures/ junto al script. Guardando en: {chosen}')
     return chosen
+
+
+def get_all_captures_dirs() -> list[Path]:
+    """Todas las carpetas de capturas conocidas (primaria + fallbacks existentes)."""
+    primary = Path(__file__).resolve().parent / 'captures'
+    ordered: list[Path] = []
+    seen: set[str] = set()
+    for candidate in [primary, *default_json_dirs()]:
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            resolved = candidate
+        key = str(resolved).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        if resolved.is_dir():
+            ordered.append(resolved)
+    if not ordered:
+        ordered.append(get_captures_dir())
+    return ordered
+
+
+def resolve_capture_file(filename: str) -> Path | None:
+    """Busca un JSON de captura en todas las carpetas conocidas."""
+    if not filename or '..' in filename or '/' in filename or '\\' in filename:
+        return None
+    for directory in get_all_captures_dirs():
+        filepath = directory / filename
+        if filepath.is_file():
+            return filepath
+    return None
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -130,37 +163,42 @@ def load_capture_index() -> dict:
     captures_dir = get_captures_dir()
     captures = []
     profiles: dict[str, dict] = {}
+    seen_files: set[str] = set()
 
-    if not captures_dir.exists():
-        return {'captures': captures, 'profiles': profiles}
-
-    for f in sorted(captures_dir.glob('*.json'), key=lambda p: p.stat().st_mtime, reverse=True):
-        try:
-            meta = read_capture_metadata_fast(f)
-            profile_name = get_profile_name_from_meta(meta)
-            norm = normalize_profile_name(profile_name)
-
-            capture_info = {
-                'filename': f.name,
-                'profile_name': profile_name,
-                'user_name': meta.get('user_name', ''),
-                'user_state': meta.get('user_state', ''),
-                'duration_seconds': meta.get('duration_seconds', 0),
-                'total_samples': meta.get('total_samples', 0),
-                'sample_rate_hz': meta.get('sample_rate_hz', 0),
-                'capture_timestamp': meta.get('capture_timestamp', ''),
-            }
-            captures.append(capture_info)
-
-            if norm not in profiles:
-                profiles[norm] = {
-                    'profile_name': profile_name,
-                    'norm': norm,
-                    'captures': [],
-                }
-            profiles[norm]['captures'].append(capture_info)
-        except Exception:
+    for captures_dir in get_all_captures_dirs():
+        if not captures_dir.exists():
             continue
+
+        for f in sorted(captures_dir.glob('*.json'), key=lambda p: p.stat().st_mtime, reverse=True):
+            if f.name in seen_files:
+                continue
+            seen_files.add(f.name)
+            try:
+                meta = read_capture_metadata_fast(f)
+                profile_name = get_profile_name_from_meta(meta)
+                norm = normalize_profile_name(profile_name)
+
+                capture_info = {
+                    'filename': f.name,
+                    'profile_name': profile_name,
+                    'user_name': meta.get('user_name', ''),
+                    'user_state': meta.get('user_state', ''),
+                    'duration_seconds': meta.get('duration_seconds', 0),
+                    'total_samples': meta.get('total_samples', 0),
+                    'sample_rate_hz': meta.get('sample_rate_hz', 0),
+                    'capture_timestamp': meta.get('capture_timestamp', ''),
+                }
+                captures.append(capture_info)
+
+                if norm not in profiles:
+                    profiles[norm] = {
+                        'profile_name': profile_name,
+                        'norm': norm,
+                        'captures': [],
+                    }
+                profiles[norm]['captures'].append(capture_info)
+            except Exception:
+                continue
 
     return {'captures': captures, 'profiles': profiles}
 
@@ -548,6 +586,19 @@ class AppHandler(SimpleHTTPRequestHandler):
                 self._send_json(500, {'ok': False, 'error': str(exc)})
             return
 
+        # ── Garden: update capture emotional state label ──
+        if parsed.path == '/api/garden/update-state':
+            try:
+                body = self._read_json_body()
+                self._handle_capture_update_state(
+                    body.get('filename', ''),
+                    body.get('userState', ''),
+                )
+            except Exception as exc:
+                traceback.print_exc()
+                self._send_json(500, {'ok': False, 'error': str(exc)})
+            return
+
         # ── Profiles: rename all captures of a profile ──
         if parsed.path == '/api/profiles/rename':
             try:
@@ -573,6 +624,19 @@ class AppHandler(SimpleHTTPRequestHandler):
             try:
                 body = self._read_json_body()
                 self._handle_garden_delete(body.get('filename', ''))
+            except Exception as exc:
+                traceback.print_exc()
+                self._send_json(500, {'ok': False, 'error': str(exc)})
+            return
+
+        # ── Profiles: update capture emotional state label ──
+        if parsed.path == '/api/profiles/capture/update-state':
+            try:
+                body = self._read_json_body()
+                self._handle_capture_update_state(
+                    body.get('filename', ''),
+                    body.get('userState', ''),
+                )
             except Exception as exc:
                 traceback.print_exc()
                 self._send_json(500, {'ok': False, 'error': str(exc)})
@@ -786,39 +850,16 @@ class AppHandler(SimpleHTTPRequestHandler):
     # ── Garden API handlers ────────────────────────────────────────────────
 
     def _handle_garden_list(self):
-        captures_dir = get_captures_dir()
-        if not captures_dir.exists():
-            self._send_json(200, {'ok': True, 'captures': []})
-            return
-
-        captures = []
-        for f in sorted(captures_dir.glob('*.json'), key=lambda p: p.stat().st_mtime, reverse=True):
-            try:
-                data = json.loads(f.read_text(encoding='utf-8'))
-                meta = data.get('metadata', {})
-                captures.append({
-                    'filename': f.name,
-                    'user_name': meta.get('user_name', ''),
-                    'user_state': meta.get('user_state', ''),
-                    'duration_seconds': meta.get('duration_seconds', 0),
-                    'total_samples': meta.get('total_samples', 0),
-                    'capture_timestamp': meta.get('capture_timestamp', ''),
-                    'sample_rate_hz': meta.get('sample_rate_hz', 0),
-                })
-            except Exception:
-                continue
-
-        self._send_json(200, {'ok': True, 'captures': captures})
+        index = load_capture_index()
+        self._send_json(200, {'ok': True, 'captures': index['captures']})
 
     def _handle_garden_file(self, filename: str):
         if not filename or '..' in filename or '/' in filename or '\\' in filename:
             self._send_json(400, {'ok': False, 'error': 'Nombre de archivo inválido'})
             return
 
-        captures_dir = get_captures_dir()
-        filepath = captures_dir / filename
-
-        if not filepath.exists() or not filepath.is_file():
+        filepath = resolve_capture_file(filename)
+        if not filepath:
             self._send_json(404, {'ok': False, 'error': 'Archivo no encontrado'})
             return
 
@@ -909,15 +950,45 @@ class AppHandler(SimpleHTTPRequestHandler):
         except Exception as exc:
             self._send_json(500, {'ok': False, 'error': str(exc)})
 
+    def _handle_capture_update_state(self, filename: str, user_state: str):
+        if not filename or '..' in filename or '/' in filename or '\\' in filename:
+            self._send_json(400, {'ok': False, 'error': 'Nombre de archivo inválido'})
+            return
+
+        user_state = (user_state or '').strip()
+        if not user_state:
+            self._send_json(400, {'ok': False, 'error': 'La energía no puede estar vacía'})
+            return
+
+        filepath = resolve_capture_file(filename)
+        if not filepath:
+            self._send_json(404, {'ok': False, 'error': 'Archivo no encontrado'})
+            return
+
+        try:
+            data = json.loads(filepath.read_text(encoding='utf-8'))
+            if 'metadata' not in data:
+                data['metadata'] = {}
+            data['metadata']['user_state'] = user_state
+            filepath.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+            print(f'✏️ Estado actualizado: {filename} → "{user_state}"')
+            self._send_json(200, {
+                'ok': True,
+                'filename': filename,
+                'user_state': user_state,
+            })
+        except Exception as exc:
+            traceback.print_exc()
+            self._send_json(500, {'ok': False, 'error': f'Error al actualizar estado: {exc}'})
+
     def _handle_garden_delete(self, filename: str):
         if not filename or '..' in filename or '/' in filename or '\\' in filename:
             self._send_json(400, {'ok': False, 'error': 'Nombre de archivo inválido'})
             return
 
-        captures_dir = get_captures_dir()
-        filepath = captures_dir / filename
+        filepath = resolve_capture_file(filename)
 
-        if not filepath.exists() or not filepath.is_file():
+        if not filepath:
             self._send_json(404, {'ok': False, 'error': 'Archivo no encontrado'})
             return
 
@@ -1041,10 +1112,9 @@ class AppHandler(SimpleHTTPRequestHandler):
             self._send_json(400, {'ok': False, 'error': 'El nuevo nombre no puede estar vacío'})
             return
 
-        captures_dir = get_captures_dir()
-        filepath = captures_dir / filename
+        filepath = resolve_capture_file(filename)
 
-        if not filepath.exists() or not filepath.is_file():
+        if not filepath:
             self._send_json(404, {'ok': False, 'error': 'Archivo no encontrado'})
             return
 

@@ -14,12 +14,16 @@
  */
 
 class Pulse3D {
-    constructor(container, analyzer) {
+    constructor(container, analyzer, report = null) {
         this.container = container;
         this.analyzer = analyzer;
         this.params = analyzer.pulseParams;
         this.bands = analyzer.normalizedBands;
         this.profile = analyzer.profile;
+        this.visualPalette = report?.visualPalette || EEGBandAnalyzer.blendVisualPalette(
+            this.bands,
+            analyzer.metadata?.capture_timestamp || analyzer.metadata?.profile_name || ''
+        );
 
         this.scene = null;
         this.camera = null;
@@ -39,9 +43,10 @@ class Pulse3D {
         const w = this.container.clientWidth || 800;
         const h = this.container.clientHeight || 600;
 
-        // Scene
+        // Scene — subtle tint from this capture's band blend, not fixed lavender/peach
         this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color('#F5F0F8');
+        const accentBg = new THREE.Color(this.visualPalette?.main || '#F5F0F8');
+        this.scene.background = accentBg.clone().lerp(new THREE.Color('#F7F4FA'), 0.82);
 
         // Camera
         this.camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 100);
@@ -104,47 +109,44 @@ class Pulse3D {
 
     // ── Lights ────────────────────────────────────────────────────────────
     _addLights() {
-        // Warm ambient
-        const ambient = new THREE.AmbientLight(0xFFF5EE, 0.38);
+        const accent = new THREE.Color(this.visualPalette?.main || '#EC4899');
+        const accentDeep = new THREE.Color(this.visualPalette?.deep || '#BE185D');
+
+        const ambient = new THREE.AmbientLight(0xF8F6FA, 0.36);
         this.scene.add(ambient);
 
-        // Main directional (sunlight)
-        const sunLight = new THREE.DirectionalLight(0xFFFAF0, 0.9);
+        const sunLight = new THREE.DirectionalLight(0xFFFCF8, 0.82);
         sunLight.position.set(4, 8, 4);
         sunLight.castShadow = true;
         sunLight.shadow.mapSize.width = 1024;
         sunLight.shadow.mapSize.height = 1024;
         this.scene.add(sunLight);
 
-        // Fill from below (bounce light)
-        const fillLight = new THREE.DirectionalLight(0xFFE4E1, 0.2);
+        const fillLight = new THREE.DirectionalLight(0xEEF2FF, 0.18);
         fillLight.position.set(-3, -1, 2);
         this.scene.add(fillLight);
 
-        // Subtle colored point lights matching band colors
-        const bandLights = [
-            { color: '#8B5CF6', pos: [-2, 2, 2] },
-            { color: '#22C55E', pos: [2, 1.5, -2] },
-            { color: '#EC4899', pos: [0, 4, 0] },
-        ];
-
-        bandLights.forEach(bl => {
-            const light = new THREE.PointLight(new THREE.Color(bl.color), 0.3, 8);
-            light.position.set(...bl.pos);
+        // Each band lights its own color — no global peach wash
+        const lightPositions = [[-2, 2, 2], [2, 1.5, -2], [0, 4, 0], [2.5, 2.5, 1], [-2.5, 2, -1]];
+        const sortedBands = [...this.bands].sort((a, b) => b.percentage - a.percentage);
+        sortedBands.slice(0, lightPositions.length).forEach((band, i) => {
+            let weight = clamp(band.percentage / 32, 0.1, 1);
+            if (band.key === 'beta') weight *= 0.88;
+            const light = new THREE.PointLight(new THREE.Color(band.color), 0.1 + weight * 0.22, 8);
+            light.position.set(...lightPositions[i]);
             this.scene.add(light);
         });
 
-        // Top-down fill: ilumina pétalos vistos desde arriba
-        const topLight = new THREE.DirectionalLight(0xFFF8F0, 0.7);
+        const topLight = new THREE.DirectionalLight(0xFAFAFA, 0.62);
         topLight.position.set(0, 12, 0);
         this.scene.add(topLight);
 
-        // Hemisphere: cielo vibrante → tierra cálida (cubre todos los ángulos)
-        const hemi = new THREE.HemisphereLight(0xDDD6FE, 0xFDBA74, 0.55);
+        const sky = accent.clone().lerp(new THREE.Color('#F4F0FA'), 0.78);
+        const ground = accentDeep.clone().lerp(new THREE.Color('#3D4F3A'), 0.68);
+        const hemi = new THREE.HemisphereLight(sky.getHex(), ground.getHex(), 0.38);
         this.scene.add(hemi);
 
-        // Rim light lateral: mejora volumen y color en vista cenital
-        const rimLight = new THREE.DirectionalLight(0xF9A8D4, 0.45);
+        const rimLight = new THREE.DirectionalLight(accent.getHex(), 0.28);
         rimLight.position.set(-6, 5, -6);
         this.scene.add(rimLight);
     }
@@ -163,9 +165,13 @@ class Pulse3D {
 
     // ── Base Platform (for 3D printing stability) ─────────────────────────
     _addBase() {
+        const accent = new THREE.Color(this.visualPalette?.deep || '#6B7280');
+        const baseColor = accent.clone().lerp(new THREE.Color('#4B5563'), 0.55);
+        const ringColor = accent.clone().lerp(new THREE.Color('#374151'), 0.35);
+
         const baseGeo = new THREE.CylinderGeometry(1.2, 1.4, 0.08, 64);
         const baseMat = new THREE.MeshStandardMaterial({
-            color: new THREE.Color('#F59E0B'),
+            color: baseColor,
             metalness: 0.05,
             roughness: 0.8,
         });
@@ -177,7 +183,7 @@ class Pulse3D {
         // Decorative ring
         const ringGeo = new THREE.TorusGeometry(1.3, 0.02, 8, 64);
         const ringMat = new THREE.MeshStandardMaterial({
-            color: new THREE.Color('#C2410C'),
+            color: ringColor,
             metalness: 0.1,
             roughness: 0.6,
         });
@@ -291,20 +297,25 @@ class Pulse3D {
             const petalCount = layer.petalCount;
             const t = i / (numLayers - 1); // 0=outer, 1=inner
 
-            // Band percentage drives color saturation boost
-            const pctNorm = clamp(band.percentage / 40, 0, 1); // 0–1
+            // Band percentage drives color saturation + petal scale (weak delta stays small)
+            const pctNorm = clamp(band.percentage / 28, 0, 1);
+            const powerScale = lerp(0.52, 1.12, pctNorm);
 
             const color = new THREE.Color(band.color);
             const colorDeep = new THREE.Color(band.colorDeep);
+            if (band.key === 'beta') {
+                color.lerp(new THREE.Color('#EC4899'), 0.08);
+                colorDeep.lerp(new THREE.Color('#BE185D'), 0.06);
+            }
 
             // ── Radial position: outer layers far from center, inner close ──
             // Inner ring goes to 0 so all layers touch the center (no floating)
             const ringRadius = lerp(0.50, 0.0, t);
 
             // ── Petal dimensions per layer ──
-            // Outer: large & wide; Inner: small & narrow (rose-like)
-            const petalW = lerp(0.38, 0.14, t);    // width
-            const petalH = lerp(0.42, 0.18, t);    // profile height (shape)
+            // Outer: large & wide; Inner: small & narrow — scaled by band power
+            const petalW = lerp(0.38, 0.14, t) * powerScale;
+            const petalH = lerp(0.42, 0.18, t) * powerScale;
             const petalArch = Math.max(layer.petalHeight * 1.2, 0.15); // 3D relief from band power
 
             // ── All layers share the same base Y so nothing floats ──
@@ -514,7 +525,7 @@ class Pulse3D {
             new THREE.Color('#EAB308'),
             new THREE.Color('#FDE68A'),
             new THREE.Color('#EC4899'),
-            new THREE.Color('#F97316'),
+            new THREE.Color('#F472B6'),
         ];
 
         for (let i = 0; i < count; i++) {

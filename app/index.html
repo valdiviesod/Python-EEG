@@ -401,6 +401,22 @@
         </div>
     </div>
 
+    <!-- ───── Modal: Editar energía (texto bajo fecha) ───── -->
+    <div class="delete-modal-overlay" id="edit-state-modal" style="display:none">
+        <div class="delete-modal edit-state-modal">
+            <div class="delete-modal-icon">✏️</div>
+            <h3>Editar energía</h3>
+            <p>Texto que aparece bajo la fecha en la miniatura de esta captura.</p>
+            <input type="text" class="edit-state-input" id="edit-state-input"
+                placeholder="Ej: tranquilo, ansioso, enérgico..." autocomplete="off">
+            <div class="edit-state-suggestions" id="edit-state-suggestions"></div>
+            <div class="delete-modal-actions">
+                <button class="btn-ghost" id="edit-state-btn-cancel">Cancelar</button>
+                <button class="btn-primary" id="edit-state-btn-save">Guardar</button>
+            </div>
+        </div>
+    </div>
+
     <!-- ───── Modal: Eliminar Perfil Completo ───── -->
     <div class="delete-modal-overlay" id="delete-profile-modal" style="display:none">
         <div class="delete-modal">
@@ -450,7 +466,7 @@
     <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
     <script src="FloatingLines.js"></script>
     <!-- Main App -->
-    <script src="app.js?v=20260515-resonant-home"></script>
+    <script src="app.js?v=20260524-edit-state"></script>
 </body>
 
 </html>

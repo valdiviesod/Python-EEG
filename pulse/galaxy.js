@@ -38,7 +38,7 @@ class GalaxyGarden {
             delta: new THREE.Color('#A855F7'),
             theta: new THREE.Color('#34D399'),
             alpha: new THREE.Color('#F472B6'),
-            beta:  new THREE.Color('#FB923C'),
+            beta:  new THREE.Color('#F59E0B'),
             gamma: new THREE.Color('#FACC15'),
         };
 
@@ -681,54 +681,11 @@ class GalaxyGarden {
         return this.loadProfiles([profile], animateProfileName);
     }
 
-    _getLavaPalette(report) {
-        const bands = report.bands || [];
-        const clamp = (x, min, max) => Math.max(min, Math.min(max, x));
-        const bandOrder = ['delta', 'theta', 'alpha', 'beta', 'gamma'];
-        const baseColors = {
-            delta: new THREE.Color('#A855F7'),
-            theta: new THREE.Color('#34D399'),
-            alpha: new THREE.Color('#F472B6'),
-            beta:  new THREE.Color('#FB923C'),
-            gamma: new THREE.Color('#FACC15'),
-        };
-
-        const stats = bandOrder.map((key, idx) => ({
-            key,
-            idx,
-            v: Math.max(0, (bands.find(b => b.key === key) || {}).relativePower || 0),
-        })).sort((a, b) => b.v - a.v);
-
-        const dominant = stats[0] || { key: 'alpha', idx: 2, v: 1 };
-        const secondary = stats[1] || dominant;
-        const sumPower = stats.reduce((s, x) => s + x.v, 0) || 1;
-        const dominanceGap = clamp(dominant.v - secondary.v, 0, 1);
-        const focus = clamp(dominant.v / sumPower, 0, 1);
-
-        // Secondary band influences tint to avoid same-color crowding while preserving dominant identity.
-        const mixSecondary = clamp(0.32 - dominanceGap * 0.5, 0.08, 0.28);
-        const centroid = stats.reduce((acc, x) => acc + (x.idx / (bandOrder.length - 1)) * x.v, 0) / sumPower;
-        const dominantNorm = dominant.idx / (bandOrder.length - 1);
-        const hueShift = (centroid - dominantNorm) * 0.09;
-
-        const mainColor = baseColors[dominant.key].clone().lerp(baseColors[secondary.key], mixSecondary);
-        const hsl = {};
-        mainColor.getHSL(hsl);
-        mainColor.setHSL(
-            (hsl.h + hueShift + 1) % 1,
-            clamp(hsl.s * (0.92 + focus * 0.2), 0.5, 1),
-            clamp(hsl.l * (0.9 + (1 - focus) * 0.2), 0.42, 0.72)
-        );
-
-        const deepColor = mainColor.clone().multiplyScalar(0.58 + (1 - focus) * 0.1);
-        const brightColor = mainColor.clone().lerp(new THREE.Color('#FFFFFF'), 0.14 + focus * 0.08);
-
-        return {
-            dominant: dominant.key,
-            main: `#${mainColor.getHexString()}`,
-            deep: `#${deepColor.getHexString()}`,
-            bright: `#${brightColor.getHexString()}`,
-        };
+    _getLavaPalette(report, seed = '') {
+        if (typeof EEGBandAnalyzer !== 'undefined' && EEGBandAnalyzer.blendVisualPalette) {
+            return EEGBandAnalyzer.blendVisualPalette(report.bands || [], seed);
+        }
+        return { dominant: 'alpha', main: '#EC4899', deep: '#BE185D', bright: '#F9A8D4' };
     }
 
     _createPulseStar(captureData, report, x, y, z, index, animate = false) {
@@ -742,7 +699,10 @@ class GalaxyGarden {
         const sizeScale = this._starScaleForCaptures(captureData.capture_count);
         const baseSize = 0.42 * sizeScale;
 
-        const { dominant, main, deep, bright } = this._getLavaPalette(report);
+        const { dominant, main, deep, bright } = this._getLavaPalette(
+            report,
+            captureData.profile_name || captureData.filename || ''
+        );
         const starColor = new THREE.Color(main);
         const deepColor = new THREE.Color(deep);
         const brightColor = new THREE.Color(bright);
@@ -892,7 +852,7 @@ class GalaxyGarden {
         if (isProfile && captureCount > 0) {
             const countSpan = document.createElement('span');
             countSpan.className = 'galaxy-star-state';
-            countSpan.textContent = `${captureCount} captura${captureCount !== 1 ? 's' : ''}`;
+            countSpan.textContent = String(captureCount);
             div.appendChild(countSpan);
         } else {
             const state = captureData.metadata?.user_state || '';
