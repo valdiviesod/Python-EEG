@@ -38,7 +38,7 @@ class GalaxyGarden {
             delta: new THREE.Color('#A855F7'),
             theta: new THREE.Color('#34D399'),
             alpha: new THREE.Color('#F472B6'),
-            beta:  new THREE.Color('#F59E0B'),
+            beta:  new THREE.Color('#F97316'),
             gamma: new THREE.Color('#FACC15'),
         };
 

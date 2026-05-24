@@ -363,14 +363,15 @@ class Garden3D {
             const petalCount = layer.petalCount;
             const t = i / (numLayers - 1);
             const pctNorm = Math.max(0, Math.min(1, band.percentage / 40));
+            const bandPresence = band.key === 'beta' ? 0.76 : (band.key === 'delta' ? 1.14 : 1);
 
             const color = new THREE.Color(band.color);
             const colorDeep = new THREE.Color(band.colorDeep);
 
             const ringRadius = 0.50 * (1 - t);
-            const petalW = 0.38 - (0.38 - 0.14) * t;
-            const petalH = 0.42 - (0.42 - 0.18) * t;
-            const petalArch = Math.max(layer.petalHeight * 1.2, 0.15);
+            const petalW = (0.38 - (0.38 - 0.14) * t) * bandPresence;
+            const petalH = (0.42 - (0.42 - 0.18) * t) * bandPresence;
+            const petalArch = Math.max(layer.petalHeight * 1.2, 0.15) * bandPresence;
             const yBase = i * 0.04;
             const tiltAngle = 0.75 - (0.75 - 0.05) * t;
             const cupStrength = 0.35 + (0.7 - 0.35) * t;
@@ -402,7 +403,7 @@ class Garden3D {
         const centerMat = new THREE.MeshStandardMaterial({
             color: 0xFDE68A,
             roughness: 0.5,
-            emissive: 0xF59E0B,
+            emissive: 0xEAB308,
             emissiveIntensity: 0.15,
         });
         const center = new THREE.Mesh(centerGeo, centerMat);

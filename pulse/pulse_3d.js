@@ -131,7 +131,8 @@ class Pulse3D {
         const sortedBands = [...this.bands].sort((a, b) => b.percentage - a.percentage);
         sortedBands.slice(0, lightPositions.length).forEach((band, i) => {
             let weight = clamp(band.percentage / 32, 0.1, 1);
-            if (band.key === 'beta') weight *= 0.88;
+            if (band.key === 'beta') weight *= 0.44;
+            else if (band.key === 'delta') weight *= 1.14;
             const light = new THREE.PointLight(new THREE.Color(band.color), 0.1 + weight * 0.22, 8);
             light.position.set(...lightPositions[i]);
             this.scene.add(light);
@@ -299,14 +300,11 @@ class Pulse3D {
 
             // Band percentage drives color saturation + petal scale (weak delta stays small)
             const pctNorm = clamp(band.percentage / 28, 0, 1);
-            const powerScale = lerp(0.52, 1.12, pctNorm);
+            const bandPresence = band.key === 'beta' ? 0.76 : (band.key === 'delta' ? 1.14 : 1);
+            const powerScale = lerp(0.52, 1.12, pctNorm) * bandPresence;
 
             const color = new THREE.Color(band.color);
             const colorDeep = new THREE.Color(band.colorDeep);
-            if (band.key === 'beta') {
-                color.lerp(new THREE.Color('#EC4899'), 0.08);
-                colorDeep.lerp(new THREE.Color('#BE185D'), 0.06);
-            }
 
             // ── Radial position: outer layers far from center, inner close ──
             // Inner ring goes to 0 so all layers touch the center (no floating)
@@ -316,7 +314,7 @@ class Pulse3D {
             // Outer: large & wide; Inner: small & narrow — scaled by band power
             const petalW = lerp(0.38, 0.14, t) * powerScale;
             const petalH = lerp(0.42, 0.18, t) * powerScale;
-            const petalArch = Math.max(layer.petalHeight * 1.2, 0.15); // 3D relief from band power
+            const petalArch = Math.max(layer.petalHeight * 1.2, 0.15) * bandPresence; // 3D relief from band power
 
             // ── All layers share the same base Y so nothing floats ──
             // Outer layers sit AT stemTop; inner layers elevated just enough to overlap
@@ -504,7 +502,7 @@ class Pulse3D {
             color: new THREE.Color('#FDE68A'),
             roughness: 0.5,
             metalness: 0.1,
-            emissive: new THREE.Color('#F59E0B'),
+            emissive: new THREE.Color('#EAB308'),
             emissiveIntensity: 0.15,
         });
         const center = new THREE.Mesh(centerGeo, centerMat);

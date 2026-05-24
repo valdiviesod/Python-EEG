@@ -501,7 +501,7 @@ class EEGBandAnalyzer {
     // Delta damp alone pushed beta/gamma → all peach. Use balanced weights +
     // softmax so each capture spreads across bands; only real deviations win.
     _normalizeBands() {
-        const BAND_VISUAL_WEIGHT = [0.61, 0.95, 1.0, 0.76, 0.58];
+        const BAND_VISUAL_WEIGHT = [0.93, 0.85, 0.90, 0.44, 0.60];
         const SPECTRAL_EXP = 1.58;
         const SOFTMAX_TEMP = 2.15;
         const centerFreqs = BANDS.map(b => Math.sqrt(b.low * b.high));
@@ -538,7 +538,8 @@ class EEGBandAnalyzer {
         for (const band of list) {
             if ((band.percentage || 0) > (dominant.percentage || 0)) dominant = band;
             let w = Math.max(0.07, (band.percentage || 0) / 100);
-            if (band.key === 'beta') w *= 0.90;
+            if (band.key === 'beta') w *= 0.52;
+            else if (band.key === 'delta') w *= 1.14;
             const rgb = hexToRGB(band.color || '#FFFFFF');
             r += rgb.r * w;
             g += rgb.g * w;
