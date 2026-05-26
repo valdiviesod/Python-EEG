@@ -315,19 +315,27 @@ class WebCaptureController:
         if not converter:
             return
         server = getattr(converter, 'server', None)
+        thread = getattr(converter, 'server_thread', None)
         if server:
             try:
                 server.shutdown()
             except Exception:
                 pass
+            # Wait for serve_forever() thread to exit before closing socket
+            if thread and thread.is_alive():
+                try:
+                    thread.join(timeout=3.0)
+                except Exception:
+                    pass
             try:
                 server.server_close()
             except Exception:
                 pass
-        thread = getattr(converter, 'server_thread', None)
-        if thread and thread.is_alive():
+            # Give the OS time to fully release the UDP port before a new bind
+            time.sleep(0.35)
+        elif thread and thread.is_alive():
             try:
-                thread.join(timeout=0.8)
+                thread.join(timeout=1.5)
             except Exception:
                 pass
         converter.server = None

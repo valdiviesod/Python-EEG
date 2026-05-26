@@ -303,9 +303,14 @@ class MuseOSCToMidi:
         if self.server:
             try:
                 self.server.shutdown()
-                print("✓ Servidor OSC cerrado")
-            except:
+            except Exception:
                 pass
+            try:
+                self.server.server_close()
+                print("✓ Servidor OSC cerrado")
+            except Exception:
+                pass
+            self.server = None
         
         # Mostrar estadísticas finales
         if self.sample_count > 0:

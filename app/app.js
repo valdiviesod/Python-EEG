@@ -2183,12 +2183,15 @@
         stopNadIntroGalaxy();
 
         const letters = overlay.querySelectorAll('.nad-intro-letter');
-        const tagline = overlay.querySelector('.nad-intro-tagline');
+        const wordEl = overlay.querySelector('.nad-intro-word');
+        const wordBigs = overlay.querySelectorAll('.nad-word-big');
+        const wordSmalls = overlay.querySelectorAll('.nad-word-small');
         const galaxyCanvas = document.getElementById('nad-intro-galaxy-canvas');
 
         gsap.set(overlay, { opacity: 0, visibility: 'visible', pointerEvents: 'auto' });
         gsap.set(letters, { opacity: 0, y: 32, scale: 1.08, filter: 'blur(18px)' });
-        gsap.set(tagline, { opacity: 0, y: 12, filter: 'blur(4px)' });
+        gsap.set(wordEl, { opacity: 0 });
+        gsap.set(wordSmalls, { opacity: 0 });
 
         overlay.classList.add('active');
         overlay.setAttribute('aria-hidden', 'false');
@@ -2208,7 +2211,7 @@
                     overlay.setAttribute('aria-hidden', 'true');
                     document.body.classList.remove('nad-intro-active');
                     gsap.set(overlay, { clearProps: 'opacity,visibility,pointerEvents' });
-                    gsap.set([...letters, tagline], { clearProps: 'all' });
+                    gsap.set([...letters, wordEl, ...wordBigs, ...wordSmalls], { clearProps: 'all' });
                     nadIntroTimeline = null;
                     resolve();
                 },
@@ -2216,44 +2219,34 @@
 
             nadIntroTimeline
                 .to(overlay, { opacity: 1, duration: 0.9, ease: 'power1.inOut' })
-                .to(letters[0], {
-                    opacity: 1,
-                    y: 0,
-                    scale: 1,
-                    filter: 'blur(0px)',
-                    duration: 1.5,
-                    ease: 'power3.out',
-                }, 0.45)
-                .to(letters[1], {
-                    opacity: 1,
-                    y: 0,
-                    scale: 1,
-                    filter: 'blur(0px)',
-                    duration: 1.5,
-                    ease: 'power3.out',
-                }, 1.55)
-                .to(letters[2], {
-                    opacity: 1,
-                    y: 0,
-                    scale: 1,
-                    filter: 'blur(0px)',
-                    duration: 1.5,
-                    ease: 'power3.out',
-                }, 2.65)
-                .to(tagline, {
-                    opacity: 1,
-                    y: 0,
-                    filter: 'blur(0px)',
-                    duration: 1.0,
-                    ease: 'power2.out',
-                }, 3.55)
-                .to({}, { duration: 0.55 })
-                .to(overlay, {
-                    opacity: 0,
-                    duration: 0.9,
-                    ease: 'power2.inOut',
-                }, 5.1);
-        });
+                // Phase 1: N, A, D appear big and centered (staggered)
+                .to(letters[0], { opacity: 1, y: 0, scale: 1, filter: 'blur(0px)', duration: 1.5, ease: 'power3.out' }, 0.45)
+                .to(letters[1], { opacity: 1, y: 0, scale: 1, filter: 'blur(0px)', duration: 1.5, ease: 'power3.out' }, 1.55)
+                .to(letters[2], { opacity: 1, y: 0, scale: 1, filter: 'blur(0px)', duration: 1.5, ease: 'power3.out' }, 2.65)
+                // Phase 2: big letters fly to their word positions
+                .call(() => {
+                    letters.forEach((letter, i) => {
+                        const src = letter.getBoundingClientRect();
+                        const tgt = wordBigs[i].getBoundingClientRect();
+                        const dx = (tgt.left + tgt.width * 0.5) - (src.left + src.width * 0.5);
+                        const dy = (tgt.top + tgt.height * 0.5) - (src.top + src.height * 0.5);
+                        const sc = tgt.height / src.height;
+                        gsap.to(letter, {
+                            x: dx, y: dy, scale: sc,
+                            opacity: 0,
+                            duration: 1.1,
+                            ease: 'power2.inOut',
+                            delay: i * 0.06,
+                        });
+                    });
+                }, null, 4.0)
+                // Phase 2: word fades in, small segments stagger in
+                .to(wordEl, { opacity: 1, duration: 0.55, ease: 'power2.out' }, 4.15)
+                .to(wordSmalls, { opacity: 1, duration: 0.75, ease: 'power2.out', stagger: 0.14 }, 4.25)
+                // Hold
+                .to({}, { duration: 1.4 })
+                // Fade out
+                .to(overlay, { opacity: 0, duration: 0.9, ease: 'power2.inOut' });
     }
 
     function waitForNextFrame() {
