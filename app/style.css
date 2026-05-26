@@ -1485,6 +1485,11 @@ body::before {
     margin-bottom: 0.75rem;
 }
 
+.band-header-copy {
+    flex: 1;
+    min-width: 0;
+}
+
 .band-color-circle {
     width: 32px;
     height: 32px;
@@ -1533,6 +1538,42 @@ body::before {
     font-size: 1.4rem;
     font-weight: 600;
     font-family: var(--font);
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+.band-meta {
+    display: grid;
+    gap: 0.35rem;
+    margin: 0.5rem 0 0.75rem;
+    font-size: 0.78rem;
+    line-height: 1.45;
+}
+
+.band-meta-row {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.band-meta-label {
+    flex: 0 0 5.5rem;
+    color: var(--text-dim);
+    font-weight: 500;
+}
+
+.band-meta-value {
+    color: var(--text);
+    flex: 1;
+}
+
+.band-color-swatch {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 0.35rem;
+    vertical-align: middle;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
 }
 
 .pulse-meaning-card {
@@ -3363,7 +3404,7 @@ body::before {
 .nad-garden-intro {
     position: fixed;
     inset: 0;
-    z-index: 900;
+    z-index: 12000;
     display: flex;
     align-items: center;
     justify-content: center;

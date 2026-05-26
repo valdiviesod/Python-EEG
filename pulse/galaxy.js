@@ -148,7 +148,7 @@ class GalaxyGarden {
     }
 
     _buildNebulaClouds() {
-        const COUNT = 800;
+        const COUNT = 420;
         const positions = new Float32Array(COUNT * 3);
         const colours = new Float32Array(COUNT * 3);
         const sizes = new Float32Array(COUNT);
@@ -229,7 +229,7 @@ class GalaxyGarden {
     }
 
     _buildGalaxyDust() {
-        const COUNT = 20000;
+        const COUNT = 9000;
         const R = 30;
         const positions = new Float32Array(COUNT * 3);
         const colours = new Float32Array(COUNT * 3);
@@ -330,7 +330,7 @@ class GalaxyGarden {
     }
 
     _buildFarStars() {
-        const COUNT = 20000;
+        const COUNT = 7000;
         const positions = new Float32Array(COUNT * 3);
         const scales = new Float32Array(COUNT);
         const twinkle = new Float32Array(COUNT);
@@ -581,32 +581,80 @@ class GalaxyGarden {
         return clamp(1.0 + logGrowth + earlyBoost, 1.0, 4.2);
     }
 
-    async loadProfiles(profilesList, animateProfileName = null) {
+    loadProfiles(profilesList, animateProfileName = null) {
+        return this._loadProfilesWithCaptures(profilesList, animateProfileName);
+    }
+
+    async _loadProfilesWithCaptures(profilesList, animateProfileName = null) {
         this.clearPulses();
         const loadToken = ++this._loadToken;
-        const normalizeProfile = (value) => String(value || '')
-            .toLowerCase()
-            .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '')
-            .trim();
-        const animateKey = normalizeProfile(animateProfileName);
+        const animateKey = this._normalizeProfile(animateProfileName);
         this._hasAnimateFilename = !!animateKey;
 
-        const placed = [];
-        const MAX_R = 14;
-        const BASE_MIN_D = 3.0;
-        const BASE_SIZE = 0.42;
         const profiles = [...profilesList].sort((a, b) => {
             if (animateKey) {
-                if (normalizeProfile(a.profile_name) === animateKey) return -1;
-                if (normalizeProfile(b.profile_name) === animateKey) return 1;
+                if (this._normalizeProfile(a.profile_name) === animateKey) return -1;
+                if (this._normalizeProfile(b.profile_name) === animateKey) return 1;
             }
             return (b.latest_capture_timestamp || '').localeCompare(a.latest_capture_timestamp || '');
         });
 
+        const positions = this._layoutProfilePositions(profiles, animateKey);
+
+        const loadOne = async (prof, index) => {
+            try {
+                const repFilename = prof.representative?.filename || prof.latest_capture_filename;
+                if (!repFilename) return;
+
+                const resp = await fetch(`/api/garden/file?name=${encodeURIComponent(repFilename)}`);
+                if (!resp.ok) return;
+
+                const data = await resp.json();
+                if (this._destroyed || loadToken !== this._loadToken) return;
+
+                data._profileMeta = prof;
+                data.profile_name = prof.profile_name;
+                data.capture_count = prof.capture_count;
+
+                const analyzer = new EEGBandAnalyzer(data);
+                const report = analyzer.getReport();
+                const pos = positions[index];
+                const isAnimate = animateKey && this._normalizeProfile(data.profile_name) === animateKey;
+                if (this._destroyed || loadToken !== this._loadToken) return;
+
+                this._createPulseStar(data, report, pos.x, pos.y, pos.z, index, isAnimate);
+            } catch (err) {
+                console.error('Galaxy loadProfiles error:', err);
+            }
+        };
+
+        const concurrency = 6;
+        let next = 0;
+        const workers = Array.from({ length: Math.min(concurrency, profiles.length) }, async () => {
+            while (next < profiles.length) {
+                if (this._destroyed || loadToken !== this._loadToken) return;
+                const index = next++;
+                await loadOne(profiles[index], index);
+            }
+        });
+
+        await Promise.all(workers);
+        if (this._destroyed || loadToken !== this._loadToken) return;
+
+        this._hasAnimateFilename = false;
+        this.stars.forEach(star => {
+            star.labelHidden = false;
+            if (star.labelEl) star.labelEl.style.display = '';
+        });
+    }
+
+    _layoutProfilePositions(profiles, animateKey) {
+        const placed = [];
+        const MAX_R = 14;
+        const BASE_MIN_D = 3.0;
         const profileScales = profiles.map(p => this._starScaleForCaptures(p.capture_count));
 
-        const positions = profiles.map((prof, idx) => {
+        return profiles.map((prof, idx) => {
             let x, y, z, ok;
             let attempts = 0;
             const myScale = profileScales[idx];
@@ -622,62 +670,29 @@ class GalaxyGarden {
                     const p = placed[pi];
                     const neighborScale = p.scale;
                     const requiredDist = BASE_MIN_D * 0.5 * (myScale + neighborScale);
-                    const dx = x - p.x, dy = y - p.y, dz = z - p.z;
-                    if (Math.sqrt(dx*dx + dy*dy + dz*dz) < requiredDist) { ok = false; break; }
+                    const dx = x - p.x;
+                    const dy = y - p.y;
+                    const dz = z - p.z;
+                    if (Math.sqrt(dx * dx + dy * dy + dz * dz) < requiredDist) { ok = false; break; }
                 }
                 attempts++;
             } while (!ok && attempts < 120);
 
             placed.push({ x, y, z, scale: myScale });
-            return { x, y, z };
-        });
-
-        const loadOne = async (prof, index) => {
-            try {
-                const repFilename = prof.representative && prof.representative.filename;
-                const url = repFilename
-                    ? `/api/garden/file?name=${encodeURIComponent(repFilename)}`
-                    : `/api/profiles/representative?name=${encodeURIComponent(prof.profile_name)}`;
-                const resp = await fetch(url);
-                if (!resp.ok) return;
-                const data = await resp.json();
-                if (this._destroyed || loadToken !== this._loadToken) return;
-                data._profileMeta = prof;
-                data.profile_name = prof.profile_name;
-                data.capture_count = prof.capture_count;
-
-                const analyzer = new EEGBandAnalyzer(data);
-                const report = analyzer.getReport();
-                const pos = positions[index];
-                const isAnimate = animateKey && normalizeProfile(data.profile_name) === animateKey;
-                if (this._destroyed || loadToken !== this._loadToken) return;
-                this._createPulseStar(data, report, pos.x, pos.y, pos.z, index, isAnimate);
-            } catch (err) {
-                console.error('Galaxy loadProfiles error:', err);
-            }
-        };
-
-        const concurrency = 3;
-        let next = 0;
-        const workers = Array.from({ length: Math.min(concurrency, profiles.length) }, async () => {
-            while (next < profiles.length) {
-                if (this._destroyed || loadToken !== this._loadToken) return;
-                const index = next++;
-                await loadOne(profiles[index], index);
-                await new Promise(resolve => requestAnimationFrame(resolve));
-            }
-        });
-
-        await Promise.all(workers);
-        if (this._destroyed || loadToken !== this._loadToken) return;
-        this._hasAnimateFilename = false;
-        this.stars.forEach(star => {
-            star.labelHidden = false;
-            if (star.labelEl) star.labelEl.style.display = '';
+            const isAnimate = animateKey && this._normalizeProfile(prof.profile_name) === animateKey;
+            return { x, y, z, isAnimate };
         });
     }
 
-    async loadProfile(profile, animateProfileName = null) {
+    _normalizeProfile(value) {
+        return String(value || '')
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .trim();
+    }
+
+    loadProfile(profile, animateProfileName = null) {
         return this.loadProfiles([profile], animateProfileName);
     }
 

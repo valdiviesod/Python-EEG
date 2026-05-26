@@ -1592,16 +1592,46 @@
     }
 
     // ── Band Bar ──
+    function getBandDisplayPercentage(band) {
+        return Number.isFinite(band.percentage) ? band.percentage : 0;
+    }
+
+    function formatBandColorName(band) {
+        return band.colorName || '';
+    }
+
+    function renderBandMeta(band) {
+        return `
+            <div class="band-meta">
+                <div class="band-meta-row">
+                    <span class="band-meta-label">Banda</span>
+                    <span class="band-meta-value">${band.emoji} ${band.name} (${band.technicalName})</span>
+                </div>
+                <div class="band-meta-row">
+                    <span class="band-meta-label">Color</span>
+                    <span class="band-meta-value">
+                        <span class="band-color-swatch" style="background:${band.color}"></span>${formatBandColorName(band)}
+                    </span>
+                </div>
+                <div class="band-meta-row">
+                    <span class="band-meta-label">Significado</span>
+                    <span class="band-meta-value">${band.meaning || ''}</span>
+                </div>
+            </div>
+        `;
+    }
+
     function renderBandBar(bands) {
         bandBar.innerHTML = '';
-        const sorted = [...bands].sort((a, b) => b.relativePower - a.relativePower);
+        const sorted = [...bands].sort((a, b) => getBandDisplayPercentage(b) - getBandDisplayPercentage(a));
         sorted.forEach(band => {
+            const pct = getBandDisplayPercentage(band);
             const chip = document.createElement('div');
             chip.className = 'band-chip';
             chip.innerHTML = `
                 <span class="band-chip-dot" style="background:${band.color}"></span>
-                <span>${band.emoji} ${band.name}</span>
-                <span class="band-chip-pct">${band.percentage.toFixed(1)}%</span>
+                <span>${band.emoji} ${band.name} (${band.technicalName})</span>
+                <span class="band-chip-pct">${pct.toFixed(1)}%</span>
             `;
             bandBar.appendChild(chip);
         });
@@ -1663,14 +1693,21 @@
     }
 
     function renderBandCard(band) {
+        const pct = getBandDisplayPercentage(band);
         return `
             <div class="band-detail-card" data-band="${band.key}">
                 <div class="band-header">
-                    <div class="band-title">${band.emoji} ${band.name}</div>
+                    <div class="band-color-circle" style="background:linear-gradient(135deg, ${band.colorLight || band.color}, ${band.color})"></div>
+                    <div class="band-header-copy">
+                        <div class="band-title">${band.emoji} ${band.name} (${band.technicalName})</div>
+                    </div>
+                    <div class="band-pct" style="color:${band.color}">${pct.toFixed(1)}%</div>
                 </div>
-                <div class="band-meaning">
-                    ${band.description || ''}
+                <div class="band-power-bar">
+                    <div class="band-power-fill" style="width:${Math.max(1, Math.min(100, pct))}%;background:linear-gradient(90deg, ${band.color}, ${band.colorLight || band.color})"></div>
                 </div>
+                ${renderBandMeta(band)}
+                <div class="band-meaning">${band.description || ''}</div>
             </div>
         `;
     }
@@ -1921,6 +1958,20 @@
         return document.getElementById('view-garden')?.classList.contains('active');
     }
 
+    function isGardenModalOpen() {
+        return gardenModal && gardenModal.style.display !== 'none';
+    }
+
+    function pauseGardenGlobalMidiForModal() {
+        if (!gardenGlobalMidiActive && !gardenGlobalMidiLoading) return;
+        stopGardenGlobalMidi({ keepPlan: true });
+    }
+
+    function resumeGardenGlobalMidiAfterModal() {
+        if (!isGardenViewActive() || isGardenModalOpen() || !gardenGlobalProfiles.length) return;
+        void startGardenGlobalMidi(gardenGlobalProfiles, { forceRestart: true, primeAudio: true });
+    }
+
     function getGardenCaptureMetas(profiles) {
         return (profiles || [])
             .flatMap(profile => Array.isArray(profile?.captures) ? profile.captures : [])
@@ -1974,7 +2025,7 @@
     }
 
     async function startGardenGlobalMidi(profiles, options = {}) {
-        if (!isGardenViewActive() || !Array.isArray(profiles) || !profiles.length) return;
+        if (!isGardenViewActive() || isGardenModalOpen() || !Array.isArray(profiles) || !profiles.length) return;
 
         const signature = getGardenProfilesSignature(profiles);
         if (!signature) return;
@@ -2012,11 +2063,11 @@
                 })),
                 totalDuration: rawPlaybackPlan.totalDuration / GARDEN_GLOBAL_SPEED,
             } : null;
-            if (requestId !== gardenGlobalMidiLoopId || !playbackPlan || !isGardenViewActive()) return;
+            if (requestId !== gardenGlobalMidiLoopId || !playbackPlan || !isGardenViewActive() || isGardenModalOpen()) return;
             gardenGlobalPlaybackPlan = rawPlaybackPlan;
 
             ctx = ctx || await getGardenAudioContext();
-            if (requestId !== gardenGlobalMidiLoopId || !isGardenViewActive() || ctx.state === 'suspended') return;
+            if (requestId !== gardenGlobalMidiLoopId || !isGardenViewActive() || isGardenModalOpen() || ctx.state === 'suspended') return;
 
             if (!gardenGlobalGain) {
                 gardenGlobalGain = ctx.createGain();
@@ -2036,7 +2087,7 @@
 
     function scheduleGardenGlobalMidiLoop(ctx, playbackPlan, playbackId) {
         if (!playbackPlan || !Array.isArray(playbackPlan.notes) || !playbackPlan.notes.length) return;
-        if (playbackId !== gardenGlobalMidiLoopId || !isGardenViewActive()) return;
+        if (playbackId !== gardenGlobalMidiLoopId || !isGardenViewActive() || isGardenModalOpen()) return;
 
         const notes = playbackPlan.notes;
         const loopDuration = playbackPlan.totalDuration;
@@ -2050,7 +2101,7 @@
         notes.forEach(note => {
             const delayMs = Math.max(0, (baseTime - ctx.currentTime + note.time) * 1000);
             const timeoutId = setTimeout(() => {
-                if (playbackId !== gardenGlobalMidiLoopId || !isGardenViewActive()) return;
+                if (playbackId !== gardenGlobalMidiLoopId || !isGardenViewActive() || isGardenModalOpen()) return;
 
                 const channelIdx = Math.max(0, note.channel % 4);
                 const instrument = resolvedInstruments[channelIdx];
@@ -2089,15 +2140,24 @@
         });
 
         gardenGlobalMidiEndTimeout = setTimeout(() => {
-            if (playbackId !== gardenGlobalMidiLoopId || !isGardenViewActive()) return;
+            if (playbackId !== gardenGlobalMidiLoopId || !isGardenViewActive() || isGardenModalOpen()) return;
             gardenGlobalMidiTimeouts = [];
             scheduleGardenGlobalMidiLoop(ctx, playbackPlan, playbackId);
         }, Math.max(1000, (loopDuration + 1.0) * 1000));
         gardenGlobalMidiTimeouts.push(gardenGlobalMidiEndTimeout);
     }
 
-    function waitForNextFrame() {
-        return new Promise(resolve => requestAnimationFrame(resolve));
+    function scheduleGardenGlobalMidiDeferred(profiles, requestId) {
+        const start = () => {
+            if (requestId !== gardenLoadRequestId) return;
+            if (!isGardenViewActive() || isGardenModalOpen()) return;
+            void startGardenGlobalMidi(profiles);
+        };
+        if (typeof requestIdleCallback === 'function') {
+            requestIdleCallback(start, { timeout: 2500 });
+        } else {
+            setTimeout(start, 600);
+        }
     }
 
     let nadIntroTimeline = null;
@@ -2155,45 +2215,49 @@
             });
 
             nadIntroTimeline
-                .to(overlay, { opacity: 1, duration: 1.4, ease: 'power1.inOut' })
+                .to(overlay, { opacity: 1, duration: 0.9, ease: 'power1.inOut' })
                 .to(letters[0], {
                     opacity: 1,
                     y: 0,
                     scale: 1,
                     filter: 'blur(0px)',
-                    duration: 2.4,
+                    duration: 1.5,
                     ease: 'power3.out',
-                }, 0.7)
+                }, 0.45)
                 .to(letters[1], {
                     opacity: 1,
                     y: 0,
                     scale: 1,
                     filter: 'blur(0px)',
-                    duration: 2.4,
+                    duration: 1.5,
                     ease: 'power3.out',
-                }, 2.55)
+                }, 1.55)
                 .to(letters[2], {
                     opacity: 1,
                     y: 0,
                     scale: 1,
                     filter: 'blur(0px)',
-                    duration: 2.4,
+                    duration: 1.5,
                     ease: 'power3.out',
-                }, 4.4)
+                }, 2.65)
                 .to(tagline, {
                     opacity: 1,
                     y: 0,
                     filter: 'blur(0px)',
-                    duration: 1.6,
+                    duration: 1.0,
                     ease: 'power2.out',
-                }, 6.0)
-                .to({}, { duration: 1.2 })
+                }, 3.55)
+                .to({}, { duration: 0.55 })
                 .to(overlay, {
                     opacity: 0,
-                    duration: 1.5,
+                    duration: 0.9,
                     ease: 'power2.inOut',
-                }, 8.2);
+                }, 5.1);
         });
+    }
+
+    function waitForNextFrame() {
+        return new Promise(resolve => requestAnimationFrame(resolve));
     }
 
     async function waitForGardenLayout() {
@@ -2210,13 +2274,19 @@
         const requestId = ++gardenLoadRequestId;
 
         const profilesPromise = fetch('/api/profiles/list').then(resp => resp.json());
-        await playNadGardenIntro();
-        if (requestId !== gardenLoadRequestId) return;
+        const introPromise = playNadGardenIntro();
 
-        showGardenStatus('🌌', 'Analizando capturas para tu campo resonante...');
+        let showedLoading = false;
+        const loadingTimer = setTimeout(() => {
+            if (requestId !== gardenLoadRequestId) return;
+            if (document.body.classList.contains('nad-intro-active')) return;
+            showedLoading = true;
+            showGardenStatus('🌌', 'Analizando capturas para tu campo resonante...');
+        }, 180);
 
         try {
-            const data = await profilesPromise;
+            const [data] = await Promise.all([profilesPromise, introPromise]);
+            clearTimeout(loadingTimer);
             if (requestId !== gardenLoadRequestId) return;
 
             if (!data.ok || !data.profiles || data.profiles.length === 0) {
@@ -2227,8 +2297,7 @@
             }
 
             gardenGlobalProfiles = data.profiles;
-
-            hideGardenStatus();
+            if (showedLoading) hideGardenStatus();
 
             const container = document.getElementById('garden-2d-scene');
             container.innerHTML = '';
@@ -2247,8 +2316,9 @@
 
             gardenLoaded = true;
             await galaxyGarden.loadProfiles(data.profiles, animateProfileName);
-            void startGardenGlobalMidi(data.profiles);
+            scheduleGardenGlobalMidiDeferred(data.profiles, requestId);
         } catch (err) {
+            clearTimeout(loadingTimer);
             console.error('Error loading garden:', err);
             if (requestId === gardenLoadRequestId) {
                 gardenLoaded = false;
@@ -2276,6 +2346,7 @@
 
     document.addEventListener('pointerdown', () => {
         if (!isGardenViewActive() || !gardenGlobalProfiles.length) return;
+        if (isGardenModalOpen()) return;
         if (gardenGlobalMidiActive && gardenAudioContext?.state !== 'suspended') return;
         void startGardenGlobalMidi(gardenGlobalProfiles, { forceRestart: true, primeAudio: true });
     }, { passive: true });
@@ -2309,6 +2380,8 @@
         gardenPanels.forEach(p => p.classList.toggle('active', p.id === 'gpanel-garden-captures'));
 
         gardenModal.style.display = 'flex';
+
+        pauseGardenGlobalMidiForModal();
 
         // Stop previous pulse
         if (gardenPulse2d) { gardenPulse2d.stop(); gardenPulse2d = null; }
@@ -2635,6 +2708,7 @@
         gardenPanels.forEach(p => p.classList.toggle('active', p.id === 'gpanel-garden-2d'));
 
         gardenModal.style.display = 'flex';
+        pauseGardenGlobalMidiForModal();
         fitPulseCanvas(canvas2dGarden);
         gardenPulse2d.start();
         midiLinkedPulse = gardenPulse2d;
@@ -3032,9 +3106,6 @@
 
     function closeGardenModal() {
         stopGardenMidiPlayback();
-        if (!gardenGlobalMidiActive && gardenAudioContext && gardenAudioContext.state === 'running') {
-            gardenAudioContext.suspend().catch(() => {});
-        }
         gardenModal.style.display = 'none';
         if (midiLinkedPulse === gardenPulse2d) midiLinkedPulse = null;
         if (gardenPulse2d) { gardenPulse2d.stop(); gardenPulse2d = null; }
@@ -3051,6 +3122,8 @@
         const tabAnalysis = document.getElementById('gtab-analysis');
         if (tab2d) tab2d.disabled = true;
         if (tabAnalysis) tabAnalysis.disabled = true;
+
+        resumeGardenGlobalMidiAfterModal();
     }
 
     // Modal tabs
@@ -3071,12 +3144,9 @@
                 if (gardenPulse2d) gardenPulse2d.stop();
             }
 
-            // Stop MIDI when leaving current pulse detail back to captures
+            // Stop capture MIDI when returning to profile captures list
             if (tabName === 'garden-captures') {
                 stopGardenMidiPlayback();
-                if (!gardenGlobalMidiActive && gardenAudioContext && gardenAudioContext.state === 'running') {
-                    gardenAudioContext.suspend().catch(() => {});
-                }
             }
         });
     });

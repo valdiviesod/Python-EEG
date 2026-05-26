@@ -414,8 +414,8 @@ class Pulse3D {
         const sortedBands = [...this.bands].sort((a, b) => b.percentage - a.percentage);
         sortedBands.slice(0, lightPositions.length).forEach((band, i) => {
             let weight = clamp(band.percentage / 32, 0.1, 1);
-            if (band.key === 'beta') weight *= 0.44;
-            else if (band.key === 'delta') weight *= 1.14;
+            if (band.key === 'beta') weight *= 0.40;
+            else if (band.key === 'delta') weight *= 1.22;
             const light = new THREE.PointLight(new THREE.Color(band.color), 0.1 + weight * 0.22, 8);
             light.position.set(...lightPositions[i]);
             this.scene.add(light);
@@ -598,7 +598,7 @@ class Pulse3D {
 
             // Band percentage drives color saturation + petal scale (weak delta stays small)
             const pctNorm = clamp(band.percentage / 28, 0, 1);
-            const bandPresence = band.key === 'beta' ? 0.76 : (band.key === 'delta' ? 1.14 : 1);
+            const bandPresence = band.key === 'beta' ? 0.72 : (band.key === 'delta' ? 1.22 : 1);
             const powerScale = lerp(0.52, 1.12, pctNorm) * bandPresence;
 
             const color = new THREE.Color(band.color);

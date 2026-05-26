@@ -168,17 +168,46 @@
     }
 
     // ── Band Bar (bottom summary) ─────────────────────────────────────────
+    function getBandDisplayPercentage(band) {
+        return Number.isFinite(band.percentage) ? band.percentage : 0;
+    }
+
+    function formatBandColorName(band) {
+        return band.colorName || '';
+    }
+
+    function renderBandMeta(band) {
+        return `
+            <div class="band-meta">
+                <div class="band-meta-row">
+                    <span class="band-meta-label">Banda</span>
+                    <span class="band-meta-value">${band.emoji} ${band.name} (${band.technicalName})</span>
+                </div>
+                <div class="band-meta-row">
+                    <span class="band-meta-label">Color</span>
+                    <span class="band-meta-value">
+                        <span class="band-color-swatch" style="background:${band.color}"></span>${formatBandColorName(band)}
+                    </span>
+                </div>
+                <div class="band-meta-row">
+                    <span class="band-meta-label">Significado</span>
+                    <span class="band-meta-value">${band.meaning || ''}</span>
+                </div>
+            </div>
+        `;
+    }
+
     function renderBandBar(bands) {
         bandBar.innerHTML = '';
-        // Sort by power for display
-        const sorted = [...bands].sort((a, b) => b.relativePower - a.relativePower);
+        const sorted = [...bands].sort((a, b) => getBandDisplayPercentage(b) - getBandDisplayPercentage(a));
         sorted.forEach(band => {
+            const pct = getBandDisplayPercentage(band);
             const chip = document.createElement('div');
             chip.className = 'band-chip';
             chip.innerHTML = `
                 <span class="band-chip-dot" style="background:${band.color}"></span>
-                <span>${band.emoji} ${band.name}</span>
-                <span class="band-chip-pct">${band.percentage.toFixed(1)}%</span>
+                <span>${band.emoji} ${band.name} (${band.technicalName})</span>
+                <span class="band-chip-pct">${pct.toFixed(1)}%</span>
             `;
             bandBar.appendChild(chip);
         });
@@ -206,14 +235,21 @@
     }
 
     function renderBandCard(band) {
+        const pct = getBandDisplayPercentage(band);
         return `
             <div class="band-detail-card" data-band="${band.key}">
                 <div class="band-header">
-                    <div class="band-title">${band.emoji} ${band.name}</div>
+                    <div class="band-color-circle" style="background:linear-gradient(135deg, ${band.colorLight || band.color}, ${band.color})"></div>
+                    <div class="band-header-copy">
+                        <div class="band-title">${band.emoji} ${band.name} (${band.technicalName})</div>
+                    </div>
+                    <div class="band-pct" style="color:${band.color}">${pct.toFixed(1)}%</div>
                 </div>
-                <div class="band-meaning">
-                    ${band.description || ''}
+                <div class="band-power-bar">
+                    <div class="band-power-fill" style="width:${Math.max(1, Math.min(100, pct))}%;background:linear-gradient(90deg, ${band.color}, ${band.colorLight || band.color})"></div>
                 </div>
+                ${renderBandMeta(band)}
+                <div class="band-meaning">${band.description || ''}</div>
             </div>
         `;
     }

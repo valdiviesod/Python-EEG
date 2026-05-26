@@ -363,7 +363,7 @@ class Garden3D {
             const petalCount = layer.petalCount;
             const t = i / (numLayers - 1);
             const pctNorm = Math.max(0, Math.min(1, band.percentage / 40));
-            const bandPresence = band.key === 'beta' ? 0.76 : (band.key === 'delta' ? 1.14 : 1);
+            const bandPresence = band.key === 'beta' ? 0.72 : (band.key === 'delta' ? 1.22 : 1);
 
             const color = new THREE.Color(band.color);
             const colorDeep = new THREE.Color(band.colorDeep);

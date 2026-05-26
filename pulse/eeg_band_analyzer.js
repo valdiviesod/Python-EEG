@@ -28,56 +28,66 @@
 const BANDS = [
     {
         name: 'Base', key: 'delta',
+        technicalName: 'Delta',
+        colorName: 'Lavanda',
         low: 0.5, high: 4,
         color: '#8B5CF6', colorDeep: '#6D28D9', colorLight: '#C4B5FD',
         emoji: '🌙',
-        meaning: 'Nivel de inmersión corporal / profundidad',
+        meaning: 'Inmersión profunda, inconsciente',
         description: 'La onda Base representa los procesos cerebrales más lentos y profundos. ' +
-            'Se asocia con descanso profundo, recuperación corporal y estados de baja activación consciente.',
+            'Se asocia con inmersión profunda, inconsciente, descanso y recuperación corporal.',
         petalMeaning: 'La onda Base se asocia con descanso profundo, recuperación corporal ' +
             'y estados de baja activación consciente.'
     },
     {
         name: 'Flujo', key: 'theta',
+        technicalName: 'Theta',
+        colorName: 'Salvia',
         low: 4, high: 8,
         color: '#22C55E', colorDeep: '#15803D', colorLight: '#86EFAC',
         emoji: '🌌',
-        meaning: 'Movimiento interno, deriva, asociación',
+        meaning: 'Movimiento interno, creatividad',
         description: 'La onda Flujo aparece en estados de transición interna. ' +
-            'Se asocia con imaginación, memoria, intuición y asociaciones mentales libres.',
+            'Se asocia con movimiento interno, creatividad, imaginación, memoria e intuición.',
         petalMeaning: 'La onda Flujo se asocia con imaginación, memoria, intuición ' +
             'y asociaciones mentales libres.'
     },
     {
         name: 'Pulso', key: 'alpha',
+        technicalName: 'Alpha',
+        colorName: 'Rosa',
         low: 8, high: 13,
         color: '#EC4899', colorDeep: '#BE185D', colorLight: '#F9A8D4',
         emoji: '💫',
-        meaning: 'Estabilidad y continuidad de la atención',
+        meaning: 'Atención relajada, presencia',
         description: 'La onda Pulso refleja relajación alerta y estabilidad atencional. ' +
-            'Se asocia con calma consciente, presencia sostenida y menor esfuerzo mental.',
+            'Se asocia con atención relajada, presencia, calma consciente y menor esfuerzo mental.',
         petalMeaning: 'La onda Pulso se asocia con calma consciente, presencia sostenida ' +
             'y menor esfuerzo mental.'
     },
     {
         name: 'Trazo', key: 'beta',
+        technicalName: 'Beta',
+        colorName: 'Durazno',
         low: 13, high: 30,
         color: '#F97316', colorDeep: '#C2410C', colorLight: '#FDBA74',
         emoji: '☀️',
-        meaning: 'Dirección, intención, acción',
+        meaning: 'Acción, dirección, pensamiento activo',
         description: 'La onda Trazo refleja actividad mental dirigida. ' +
-            'Se asocia con atención externa, resolución de problemas, intención y acción consciente.',
+            'Se asocia con acción, dirección, pensamiento activo, intención y resolución de problemas.',
         petalMeaning: 'La onda Trazo se asocia con atención externa, resolución de problemas, ' +
             'intención y acción consciente.'
     },
     {
         name: 'Destello', key: 'gamma',
+        technicalName: 'Gamma',
+        colorName: 'Limón',
         low: 30, high: 44,
         color: '#EAB308', colorDeep: '#A16207', colorLight: '#FDE047',
-        emoji: '✨',
-        meaning: 'Momentos de intensidad o claridad',
+        emoji: '⚡',
+        meaning: 'Intensidad, claridad suprema',
         description: 'La onda Destello corresponde a actividad cerebral rápida. ' +
-            'Se asocia con integración de información, claridad intensa y momentos de alta intensidad mental.',
+            'Se asocia con intensidad, claridad suprema, integración de información y alta actividad mental.',
         petalMeaning: 'La onda Destello se asocia con integración de información, claridad intensa ' +
             'y momentos de alta intensidad mental.'
     },
@@ -491,7 +501,7 @@ class EEGBandAnalyzer {
     // Delta damp alone pushed beta/gamma → all peach. Use balanced weights +
     // softmax so each capture spreads across bands; only real deviations win.
     _normalizeBands() {
-        const BAND_VISUAL_WEIGHT = [0.93, 0.85, 0.90, 0.44, 0.60];
+        const BAND_VISUAL_WEIGHT = [1.28, 0.85, 0.90, 0.40, 0.60];
         const SPECTRAL_EXP = 1.58;
         const SOFTMAX_TEMP = 2.15;
         const centerFreqs = BANDS.map(b => Math.sqrt(b.low * b.high));
@@ -508,6 +518,7 @@ class EEGBandAnalyzer {
             ...BANDS[i],
             absolutePower: p,
             relativePower: p / rawTotal,
+            powerPercentage: (p / rawTotal) * 100,
             percentage: (softmax[i] / softTotal) * 100,
             visualSize: Math.sqrt(softmax[i] / softTotal),
         }));
@@ -528,8 +539,8 @@ class EEGBandAnalyzer {
         for (const band of list) {
             if ((band.percentage || 0) > (dominant.percentage || 0)) dominant = band;
             let w = Math.max(0.07, (band.percentage || 0) / 100);
-            if (band.key === 'beta') w *= 0.52;
-            else if (band.key === 'delta') w *= 1.14;
+            if (band.key === 'beta') w *= 0.48;
+            else if (band.key === 'delta') w *= 1.68;
             const rgb = hexToRGB(band.color || '#FFFFFF');
             r += rgb.r * w;
             g += rgb.g * w;
