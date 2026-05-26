@@ -20,6 +20,10 @@ from pythonosc import osc_server
 from safe_json_storage import write_json_with_fallback
 
 
+class _ReuseAddrOSCServer(osc_server.ThreadingOSCUDPServer):
+    allow_reuse_address = True
+
+
 class MuseOSCToMidi:
     def __init__(self, output_file="muse_output.mid", osc_ip="0.0.0.0", osc_port=5000):
         self.output_file = output_file
@@ -119,8 +123,7 @@ class MuseOSCToMidi:
             # Mapear TODOS los mensajes para debugging
             dispatcher.map("*", self.debug_handler)
             
-            # Crear servidor OSC usando ThreadingOSCUDPServer
-            self.server = osc_server.ThreadingOSCUDPServer((self.osc_ip, self.osc_port), dispatcher)
+            self.server = _ReuseAddrOSCServer((self.osc_ip, self.osc_port), dispatcher)
             print(f"✓ Servidor OSC configurado en {self.osc_ip}:{self.osc_port}")
             print("🔍 Modo DEBUG activado - se mostrarán TODOS los mensajes OSC recibidos")
             

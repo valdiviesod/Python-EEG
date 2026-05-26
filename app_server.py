@@ -329,8 +329,13 @@ class WebCaptureController:
                 last_error = exc
                 converter.running = False
                 self._close_converter_resources(converter)
-                if getattr(exc, 'winerror', None) == 10048 and attempt == 0:
-                    time.sleep(0.45)
+                import errno as _errno
+                addr_in_use = (
+                    getattr(exc, 'winerror', None) == 10048  # Windows WSAEADDRINUSE
+                    or exc.errno in (_errno.EADDRINUSE, _errno.EACCES)  # Linux/macOS
+                )
+                if addr_in_use and attempt == 0:
+                    time.sleep(0.5)
                     continue
                 raise
             except Exception as exc:
