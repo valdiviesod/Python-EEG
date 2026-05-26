@@ -192,21 +192,12 @@
         const html = `
             <!-- Band Detail Cards -->
             <div class="analysis-card">
-                <h3>🌋 Anatomía de tu Pulso</h3>
+                <h3>💫 Anatomía de tu Pulso</h3>
                 <p style="font-size:0.85rem;color:var(--text-dim);margin-bottom:1rem;line-height:1.6">
-                    Cada banda de frecuencia cerebral moldea la forma, color y velocidad del pulso.
-                    El tamaño y complejidad de la curva refleja la potencia relativa de cada banda.
+                    Cada capa de pétalos representa una banda de frecuencia cerebral calculada con precisión desde tu captura.
                 </p>
                 <div class="band-detail-grid">
                     ${bands.map(band => renderBandCard(band)).join('')}
-                </div>
-            </div>
-
-            <!-- Pulse Interpretation -->
-            <div class="analysis-card pulse-meaning-card">
-                <h3>🌋 Lectura de tu Pulso</h3>
-                <div class="pulse-meaning-text">
-                    ${report.interpretation}
                 </div>
             </div>
 
@@ -218,19 +209,10 @@
         return `
             <div class="band-detail-card" data-band="${band.key}">
                 <div class="band-header">
-                    <div class="band-color-circle" style="background: linear-gradient(135deg, ${band.colorLight}, ${band.color}, ${band.colorDeep})"></div>
-                    <div>
-                        <div class="band-title">${band.emoji} ${band.name}</div>
-                        <div class="band-range">${band.low}–${band.high} Hz</div>
-                    </div>
-                    <div class="band-pct" style="margin-left:auto">${band.percentage.toFixed(1)}%</div>
-                </div>
-                <div class="band-power-bar">
-                    <div class="band-power-fill" style="width:${Math.max(3, band.percentage)}%;background:linear-gradient(90deg, ${band.color}, ${band.colorDeep})"></div>
+                    <div class="band-title">${band.emoji} ${band.name}</div>
                 </div>
                 <div class="band-meaning">
-                    <strong>${band.meaning}</strong><br>
-                    ${band.petalMeaning}
+                    ${band.description || ''}
                 </div>
             </div>
         `;

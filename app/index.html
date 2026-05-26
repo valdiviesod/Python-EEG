@@ -9,7 +9,7 @@
         content="Captura ondas cerebrales EEG en tiempo real con Muse 2 y genera tu pulso neurofuncional única. Descarga JSON y MIDI.">
 
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='28' font-size='28'>🧠</text></svg>" type="image/svg+xml">
-    <link rel="stylesheet" href="style.css?v=20260515-resonant-home">
+    <link rel="stylesheet" href="style.css?v=20260525-nad-intro-bold">
 </head>
 
 <body>
@@ -451,6 +451,22 @@
         </div>
     </div>
 
+    <!-- NAD intro — pantalla completa antes del campo resonante -->
+    <div id="nad-garden-intro" class="nad-garden-intro" aria-hidden="true">
+        <div class="nad-intro-cosmos" aria-hidden="true">
+            <canvas id="nad-intro-galaxy-canvas" class="nad-intro-galaxy-canvas"></canvas>
+            <div class="nad-intro-grain"></div>
+        </div>
+        <div class="nad-intro-stage">
+            <div class="nad-intro-letters" aria-label="NAD">
+                <span class="nad-intro-letter" data-letter="N">N</span>
+                <span class="nad-intro-letter" data-letter="A">A</span>
+                <span class="nad-intro-letter" data-letter="D">D</span>
+            </div>
+            <p class="nad-intro-tagline">Neuroarmonía Divergente</p>
+        </div>
+    </div>
+
     <!-- ───── Scripts ───── -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -466,7 +482,8 @@
     <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
     <script src="FloatingLines.js"></script>
     <!-- Main App -->
-    <script src="app.js?v=20260524-edit-state"></script>
+    <script src="nad_intro_galaxy.js?v=20260525b"></script>
+    <script src="app.js?v=20260525-nad-intro-galaxy"></script>
 </body>
 
 </html>

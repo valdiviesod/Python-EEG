@@ -965,21 +965,6 @@ body::before {
     backdrop-filter: blur(10px);
 }
 
-.band-detail-card::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 3px;
-}
-
-.band-detail-card[data-band="delta"]::before { background: var(--delta-deep); }
-.band-detail-card[data-band="theta"]::before { background: var(--theta-deep); }
-.band-detail-card[data-band="alpha"]::before { background: var(--alpha-deep); }
-.band-detail-card[data-band="beta"]::before { background: var(--beta-deep); }
-.band-detail-card[data-band="gamma"]::before { background: var(--gamma-deep); }
-
 .band-detail-card:hover {
     box-shadow: var(--shadow-medium);
     transform: translateY(-2px);

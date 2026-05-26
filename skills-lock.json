@@ -4,7 +4,8 @@
     "3d-web-experience": {
       "source": "sickn33/antigravity-awesome-skills",
       "sourceType": "github",
-      "computedHash": "969ddfb5df5eeb2affed21ed6b73dd11b56c8d46ed8ca939e74cfa191f2390c1"
+      "skillPath": "skills/3d-web-experience/SKILL.md",
+      "computedHash": "abf349a30764951de0ff17fe6e4b0d3a5332d3682b3b97109d7a23f813406d1a"
     },
     "SVG Logo Designer": {
       "source": "rknall/claude-skills",

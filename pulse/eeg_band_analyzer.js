@@ -32,12 +32,10 @@ const BANDS = [
         color: '#8B5CF6', colorDeep: '#6D28D9', colorLight: '#C4B5FD',
         emoji: '🌙',
         meaning: 'Nivel de inmersión corporal / profundidad',
-        description: 'La onda Base representa los procesos inconscientes más profundos — ' +
-            'la inmersión total del cuerpo, la regeneración celular y la sanación desde lo invisible. ' +
-            'Como las raíces de una pulso, nutren todo lo que crece desde las profundidades.',
-        petalMeaning: 'Los pétalos de Base forman la capa envolvente de la pulso, ' +
-            'anchos y suaves como la noche que abraza el descanso más profundo. ' +
-            'Su tono lavanda evoca la quietud del crepúsculo y la inmersión total.'
+        description: 'La onda Base representa los procesos cerebrales más lentos y profundos. ' +
+            'Se asocia con descanso profundo, recuperación corporal y estados de baja activación consciente.',
+        petalMeaning: 'La onda Base se asocia con descanso profundo, recuperación corporal ' +
+            'y estados de baja activación consciente.'
     },
     {
         name: 'Flujo', key: 'theta',
@@ -45,12 +43,10 @@ const BANDS = [
         color: '#22C55E', colorDeep: '#15803D', colorLight: '#86EFAC',
         emoji: '🌌',
         meaning: 'Movimiento interno, deriva, asociación',
-        description: 'Flujo es el puente entre lo consciente y lo inconsciente — ' +
-            'el espacio del movimiento interno, la deriva libre y la asociación creativa. ' +
-            'Como un brote verde que emerge, conecta la semilla con la luz del día.',
-        petalMeaning: 'Los pétalos de Flujo son alargados y elegantes, como hojas nuevas ' +
-            'que se mueven suavemente con la brisa. Su verde representa el movimiento ' +
-            'interno y la frescura de las asociaciones emergentes.'
+        description: 'La onda Flujo aparece en estados de transición interna. ' +
+            'Se asocia con imaginación, memoria, intuición y asociaciones mentales libres.',
+        petalMeaning: 'La onda Flujo se asocia con imaginación, memoria, intuición ' +
+            'y asociaciones mentales libres.'
     },
     {
         name: 'Pulso', key: 'alpha',
@@ -58,12 +54,10 @@ const BANDS = [
         color: '#EC4899', colorDeep: '#BE185D', colorLight: '#F9A8D4',
         emoji: '💫',
         meaning: 'Estabilidad y continuidad de la atención',
-        description: 'Pulso es el estado de relajación alerta — ' +
-            'la estabilidad de la presencia, la atención que fluye sin esfuerzo. ' +
-            'Es la pulso en su máximo esplendor, abierta y continua en su ritmo propio.',
-        petalMeaning: 'Los pétalos de Pulso son los más prominentes y abiertos, ' +
-            'como una rosa en plena floración que late con ritmo constante. ' +
-            'Su color rosado vibrante transmite la dulzura de la atención sostenida.'
+        description: 'La onda Pulso refleja relajación alerta y estabilidad atencional. ' +
+            'Se asocia con calma consciente, presencia sostenida y menor esfuerzo mental.',
+        petalMeaning: 'La onda Pulso se asocia con calma consciente, presencia sostenida ' +
+            'y menor esfuerzo mental.'
     },
     {
         name: 'Trazo', key: 'beta',
@@ -71,12 +65,10 @@ const BANDS = [
         color: '#F97316', colorDeep: '#C2410C', colorLight: '#FDBA74',
         emoji: '☀️',
         meaning: 'Dirección, intención, acción',
-        description: 'Trazo refleja la mente consciente en acción dirigida — ' +
-            'la resolución de problemas, la intención clara, la acción con propósito. ' +
-            'Es la energía del mediodía, trazando caminos con precisión y vitalidad.',
-        petalMeaning: 'Los pétalos de Trazo son más agudos y definidos, ' +
-            'como rayos de sol que se extienden con dirección e intención. ' +
-            'Su tono durazno cálido representa la energía de la acción consciente.'
+        description: 'La onda Trazo refleja actividad mental dirigida. ' +
+            'Se asocia con atención externa, resolución de problemas, intención y acción consciente.',
+        petalMeaning: 'La onda Trazo se asocia con atención externa, resolución de problemas, ' +
+            'intención y acción consciente.'
     },
     {
         name: 'Destello', key: 'gamma',
@@ -84,12 +76,10 @@ const BANDS = [
         color: '#EAB308', colorDeep: '#A16207', colorLight: '#FDE047',
         emoji: '✨',
         meaning: 'Momentos de intensidad o claridad',
-        description: 'Destello es la frecuencia más alta — ' +
-            'momentos de insight súbito, claridad intensa, instantes de conciencia expandida. ' +
-            'Es el destello dorado que ilumina el centro de todo lo que somos.',
-        petalMeaning: 'Los pétalos de Destello son delicados y luminosos, ' +
-            'como destellos de luz solar que aparecen y desaparecen con intensidad. ' +
-            'Su dorado captura esos instantes de claridad y brillo absoluto.'
+        description: 'La onda Destello corresponde a actividad cerebral rápida. ' +
+            'Se asocia con integración de información, claridad intensa y momentos de alta intensidad mental.',
+        petalMeaning: 'La onda Destello se asocia con integración de información, claridad intensa ' +
+            'y momentos de alta intensidad mental.'
     },
 ];
 
@@ -754,53 +744,6 @@ class EEGBandAnalyzer {
 
     // ── Generate Human-Readable Pulse Interpretation ─────────────────────
     _generateInterpretation() {
-        const bands = this.normalizedBands;
-        const profile = this.profile;
-        const dominant = profile.dominant;
-        const lines = [];
-
-        lines.push('<strong>Tu Pulso Neurofuncional</strong>');
-        lines.push('');
-        lines.push(`Tu pulso cerebral está dominada por <em>${dominant.name}</em> (${dominant.percentage.toFixed(1)}%), ` +
-            `lo que le da su forma característica: ${dominant.petalMeaning}`);
-        lines.push('');
-
-        // Describe each petal layer
-        lines.push('<strong>Significado de cada pétalo:</strong>');
-        lines.push('');
-
-        // Sort by power to describe from most to least prominent
-        const sorted = [...bands].sort((a, b) => b.relativePower - a.relativePower);
-
-        sorted.forEach((band, i) => {
-            const prominence = i === 0 ? '(dominante)' :
-                               i === 1 ? '(secundario)' : '';
-            lines.push(`${band.emoji} <strong>${band.name}</strong> — ${band.percentage.toFixed(1)}% ${prominence}`);
-            lines.push(`<em>${band.meaning}</em>`);
-            lines.push(`${band.petalMeaning}`);
-            lines.push('');
-        });
-
-        // Overall pulse meaning
-        lines.push('<strong>🌺 Lectura general de tu pulso:</strong>');
-        lines.push('');
-
-        if (profile.relaxation > 1.2) {
-            lines.push('Tu pulso se abre amplia y suave — los pétalos de Alpha y Theta son prominentes, ' +
-                'indicando un estado profundo de relajación y receptividad. Es una pulso nocturna, ' +
-                'que florece en la calma.');
-        } else if (profile.focus > 1.2) {
-            lines.push('Tu pulso tiene pétalos definidos y angulares — Beta domina, mostrando una mente ' +
-                'activa y enfocada. Es una pulso diurna, orientada al sol del pensamiento consciente.');
-        } else if (profile.meditation > 1.2) {
-            lines.push('Tu pulso tiene raíces profundas en Theta — una pulso meditativa que crece ' +
-                'desde el interior. Sus pétalos sugieren un puente entre lo consciente y lo inconsciente.');
-        } else {
-            lines.push('Tu pulso muestra un equilibrio orgánico entre todas las bandas — ' +
-                'como una pulso silvestre que integra todas las frecuencias de la luz. ' +
-                'Esta armonía sugiere un estado mental balanceado y adaptativo.');
-        }
-
-        return lines.join('<br>');
+        return '';
     }
 }

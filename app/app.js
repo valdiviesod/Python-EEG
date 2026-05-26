@@ -21,6 +21,8 @@
     const GARDEN_PLAYBACK_MIN_SPACING = 0.08;       // minimum seconds between notes
     const GARDEN_PLAYBACK_SPEED = 1;            
     const GARDEN_CHANNEL_PAN = [-0.55, -0.18, 0.18, 0.55];
+    const GARDEN_GLOBAL_VOLUME = 0.68;
+    const GARDEN_GLOBAL_SPEED = 0.9;
 
     // Pentatonic major scale intervals from C (in semitones): C D E G A
     const GARDEN_PENTATONIC = [0, 2, 4, 7, 9];
@@ -367,14 +369,28 @@
 
             // Close garden modal when leaving garden view
             if (viewName !== 'garden') {
+                stopGardenGlobalMidi();
                 closeGardenModal();
             }
 
             // Galaxy: destroy when leaving garden to free GPU memory
             if (viewName === 'garden') {
                 if (!gardenLoaded) void loadGarden();
+                else void startGardenGlobalMidi(gardenGlobalProfiles);
             } else {
                 gardenLoadRequestId += 1;
+                if (nadIntroTimeline) {
+                    nadIntroTimeline.kill();
+                    nadIntroTimeline = null;
+                    const nadIntro = document.getElementById('nad-garden-intro');
+                    if (nadIntro) {
+                        nadIntro.classList.remove('active');
+                        nadIntro.setAttribute('aria-hidden', 'true');
+                    }
+                    document.body.classList.remove('nad-intro-active');
+                }
+                stopNadIntroGalaxy();
+                stopGardenGlobalMidi();
                 if (galaxyGarden) {
                     galaxyGarden.destroy();
                     galaxyGarden = null;
@@ -1598,17 +1614,10 @@
             <div class="analysis-card">
                 <h3>💫 Anatomía de tu Pulso</h3>
                 <p style="font-size:0.85rem;color:var(--text-dim);margin-bottom:1rem;line-height:1.6">
-                    Cada capa de pétalos representa una banda de frecuencia cerebral.
-                    El tamaño de los pétalos es proporcional a la potencia relativa de cada banda.
+                    Cada capa de pétalos representa una banda de frecuencia cerebral calculada con precisión desde tu captura.
                 </p>
                 <div class="band-detail-grid">
                     ${bands.map(band => renderBandCard(band)).join('')}
-                </div>
-            </div>
-            <div class="analysis-card pulse-meaning-card">
-                <h3>🌺 Lectura de tu Pulso</h3>
-                <div class="pulse-meaning-text">
-                    ${report.interpretation || 'Carga un archivo EEG para ver la interpretación.'}
                 </div>
             </div>
         `;
@@ -1657,19 +1666,10 @@
         return `
             <div class="band-detail-card" data-band="${band.key}">
                 <div class="band-header">
-                    <div class="band-color-circle" style="background: linear-gradient(135deg, ${band.colorLight}, ${band.color}, ${band.colorDeep})"></div>
-                    <div>
-                        <div class="band-title">${band.emoji} ${band.name}</div>
-                        <div class="band-range">${band.low}–${band.high} Hz</div>
-                    </div>
-                    <div class="band-pct" style="margin-left:auto">${band.percentage.toFixed(1)}%</div>
-                </div>
-                <div class="band-power-bar">
-                    <div class="band-power-fill" style="width:${Math.max(3, band.percentage)}%;background:linear-gradient(90deg, ${band.color}, ${band.colorDeep})"></div>
+                    <div class="band-title">${band.emoji} ${band.name}</div>
                 </div>
                 <div class="band-meaning">
-                    <strong>${band.meaning}</strong><br>
-                    ${band.petalMeaning || ''}
+                    ${band.description || ''}
                 </div>
             </div>
         `;
@@ -1873,6 +1873,16 @@
     let gardenMidiPlaying   = false;   // true when MIDI is playing
     let gardenMidiEndTimeout = null;    // timeout to detect MIDI end
     let currentPlaybackCaptureData = null; // capture data for replay
+    let gardenGlobalProfiles = [];
+    let gardenGlobalProfilesSignature = '';
+    let gardenGlobalPlaybackPlan = null;
+    let gardenGlobalMidiActive = false;
+    let gardenGlobalMidiLoading = false;
+    let gardenGlobalMidiLoopId = 0;
+    let gardenGlobalMidiTimeouts = [];
+    let gardenGlobalMidiNodes = [];
+    let gardenGlobalMidiEndTimeout = null;
+    let gardenGlobalGain = null;
     const gardenSoundfontFallbackLogged = new Set();
 
     function startLinkedPulseForMidiReplay() {
@@ -1907,8 +1917,283 @@
         gardenStatus.style.display = 'none';
     }
 
+    function isGardenViewActive() {
+        return document.getElementById('view-garden')?.classList.contains('active');
+    }
+
+    function getGardenCaptureMetas(profiles) {
+        return (profiles || [])
+            .flatMap(profile => Array.isArray(profile?.captures) ? profile.captures : [])
+            .filter(capture => capture?.filename);
+    }
+
+    function getGardenProfilesSignature(profiles) {
+        return getGardenCaptureMetas(profiles)
+            .map(capture => `${capture.filename}:${capture.total_samples || 0}:${capture.capture_timestamp || ''}`)
+            .sort()
+            .join('|');
+    }
+
+    function stopGardenGlobalMidi(options = {}) {
+        const keepPlan = Boolean(options.keepPlan);
+
+        if (gardenGlobalMidiEndTimeout !== null) {
+            clearTimeout(gardenGlobalMidiEndTimeout);
+            gardenGlobalMidiEndTimeout = null;
+        }
+        gardenGlobalMidiLoopId += 1;
+
+        gardenGlobalMidiTimeouts.forEach(timeoutId => clearTimeout(timeoutId));
+        gardenGlobalMidiTimeouts = [];
+
+        gardenGlobalMidiNodes.forEach(node => {
+            try { node.stop(); } catch (_) { }
+            try { node.disconnect(); } catch (_) { }
+        });
+        gardenGlobalMidiNodes = [];
+        gardenGlobalMidiActive = false;
+
+        if (!keepPlan) {
+            gardenGlobalPlaybackPlan = null;
+            gardenGlobalProfilesSignature = '';
+        }
+    }
+
+    async function buildGardenGlobalPlaybackPlan(profiles) {
+        const captures = getGardenCaptureMetas(profiles);
+        if (!captures.length || typeof Midi === 'undefined') return null;
+
+        const resp = await fetch('/api/garden/global-midi');
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error(err.error || 'No se pudo generar el MIDI global');
+        }
+
+        const midi = new Midi(await resp.arrayBuffer());
+        return buildGardenPlaybackPlan(midi);
+    }
+
+    async function startGardenGlobalMidi(profiles, options = {}) {
+        if (!isGardenViewActive() || !Array.isArray(profiles) || !profiles.length) return;
+
+        const signature = getGardenProfilesSignature(profiles);
+        if (!signature) return;
+
+        const forceRestart = Boolean(options.forceRestart);
+        const primeAudio = Boolean(options.primeAudio);
+        const samePlan = signature === gardenGlobalProfilesSignature && gardenGlobalPlaybackPlan;
+        if (gardenGlobalMidiActive && samePlan && !forceRestart) return;
+        if (gardenGlobalMidiLoading && !forceRestart) return;
+        if (!primeAudio && (!gardenAudioContext || gardenAudioContext.state !== 'running')) return;
+
+        if (!samePlan) {
+            stopGardenGlobalMidi();
+            gardenGlobalProfilesSignature = signature;
+        } else if (forceRestart) {
+            stopGardenGlobalMidi({ keepPlan: true });
+            gardenGlobalProfilesSignature = signature;
+        }
+
+        gardenGlobalMidiLoading = true;
+        const requestId = gardenGlobalMidiLoopId;
+        let ctx = null;
+        try {
+            if (forceRestart || primeAudio) {
+                ctx = await getGardenAudioContext();
+                if (ctx.state === 'suspended') return;
+            }
+
+            const rawPlaybackPlan = gardenGlobalPlaybackPlan || await buildGardenGlobalPlaybackPlan(profiles);
+            const playbackPlan = rawPlaybackPlan ? {
+                notes: rawPlaybackPlan.notes.map(note => ({
+                    ...note,
+                    time: note.time / GARDEN_GLOBAL_SPEED,
+                    duration: note.duration / GARDEN_GLOBAL_SPEED,
+                })),
+                totalDuration: rawPlaybackPlan.totalDuration / GARDEN_GLOBAL_SPEED,
+            } : null;
+            if (requestId !== gardenGlobalMidiLoopId || !playbackPlan || !isGardenViewActive()) return;
+            gardenGlobalPlaybackPlan = rawPlaybackPlan;
+
+            ctx = ctx || await getGardenAudioContext();
+            if (requestId !== gardenGlobalMidiLoopId || !isGardenViewActive() || ctx.state === 'suspended') return;
+
+            if (!gardenGlobalGain) {
+                gardenGlobalGain = ctx.createGain();
+                gardenGlobalGain.connect(ctx.destination);
+            }
+            gardenGlobalGain.gain.value = GARDEN_GLOBAL_VOLUME;
+
+            gardenGlobalMidiActive = true;
+            const playbackId = ++gardenGlobalMidiLoopId;
+            scheduleGardenGlobalMidiLoop(ctx, playbackPlan, playbackId);
+        } catch (err) {
+            console.error('Error reproduciendo MIDI global del campo resonante:', err);
+        } finally {
+            gardenGlobalMidiLoading = false;
+        }
+    }
+
+    function scheduleGardenGlobalMidiLoop(ctx, playbackPlan, playbackId) {
+        if (!playbackPlan || !Array.isArray(playbackPlan.notes) || !playbackPlan.notes.length) return;
+        if (playbackId !== gardenGlobalMidiLoopId || !isGardenViewActive()) return;
+
+        const notes = playbackPlan.notes;
+        const loopDuration = playbackPlan.totalDuration;
+        const baseTime = ctx.currentTime + 0.08;
+
+        const resolvedInstruments = GARDEN_INSTRUMENTS.map(
+            name => gardenInstruments[name] || gardenInstruments[GARDEN_INSTRUMENTS[0]]
+        );
+        if (!resolvedInstruments[0]) return;
+
+        notes.forEach(note => {
+            const delayMs = Math.max(0, (baseTime - ctx.currentTime + note.time) * 1000);
+            const timeoutId = setTimeout(() => {
+                if (playbackId !== gardenGlobalMidiLoopId || !isGardenViewActive()) return;
+
+                const channelIdx = Math.max(0, note.channel % 4);
+                const instrument = resolvedInstruments[channelIdx];
+                const midiValue = note.midi || 60;
+                const duration = note.duration || 0.5;
+                const gain = Math.max(0.12, Math.min(0.5, (note.velocity || 0.12) * 0.9));
+                const pan = GARDEN_CHANNEL_PAN[channelIdx] * 0.75;
+
+                try {
+                    const player = instrument.play(midiValue, ctx.currentTime, { duration, gain });
+                    if (!player) return;
+
+                    try { player.disconnect(); } catch (_) { }
+
+                    if (typeof ctx.createStereoPanner === 'function' && gardenGlobalGain) {
+                        const panner = ctx.createStereoPanner();
+                        panner.pan.setValueAtTime(pan, ctx.currentTime);
+                        player.connect(panner);
+                        panner.connect(gardenGlobalGain);
+                    } else if (gardenGlobalGain) {
+                        player.connect(gardenGlobalGain);
+                    }
+
+                    gardenGlobalMidiNodes.push(player);
+                    const cleanupId = setTimeout(() => {
+                        const idx = gardenGlobalMidiNodes.indexOf(player);
+                        if (idx >= 0) gardenGlobalMidiNodes.splice(idx, 1);
+                    }, (duration + 0.5) * 1000);
+                    gardenGlobalMidiTimeouts.push(cleanupId);
+                } catch (err) {
+                    console.warn('Global garden MIDI note error:', err);
+                }
+            }, delayMs);
+
+            gardenGlobalMidiTimeouts.push(timeoutId);
+        });
+
+        gardenGlobalMidiEndTimeout = setTimeout(() => {
+            if (playbackId !== gardenGlobalMidiLoopId || !isGardenViewActive()) return;
+            gardenGlobalMidiTimeouts = [];
+            scheduleGardenGlobalMidiLoop(ctx, playbackPlan, playbackId);
+        }, Math.max(1000, (loopDuration + 1.0) * 1000));
+        gardenGlobalMidiTimeouts.push(gardenGlobalMidiEndTimeout);
+    }
+
     function waitForNextFrame() {
         return new Promise(resolve => requestAnimationFrame(resolve));
+    }
+
+    let nadIntroTimeline = null;
+    let nadIntroGalaxy = null;
+
+    function stopNadIntroGalaxy() {
+        if (nadIntroGalaxy) {
+            nadIntroGalaxy.stop();
+            nadIntroGalaxy = null;
+        }
+    }
+
+    function playNadGardenIntro() {
+        const overlay = document.getElementById('nad-garden-intro');
+        if (!overlay || typeof gsap === 'undefined') return Promise.resolve();
+        if (!isGardenViewActive()) return Promise.resolve();
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return Promise.resolve();
+
+        if (nadIntroTimeline) {
+            nadIntroTimeline.kill();
+            nadIntroTimeline = null;
+        }
+        stopNadIntroGalaxy();
+
+        const letters = overlay.querySelectorAll('.nad-intro-letter');
+        const tagline = overlay.querySelector('.nad-intro-tagline');
+        const galaxyCanvas = document.getElementById('nad-intro-galaxy-canvas');
+
+        gsap.set(overlay, { opacity: 0, visibility: 'visible', pointerEvents: 'auto' });
+        gsap.set(letters, { opacity: 0, y: 32, scale: 1.08, filter: 'blur(18px)' });
+        gsap.set(tagline, { opacity: 0, y: 12, filter: 'blur(4px)' });
+
+        overlay.classList.add('active');
+        overlay.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('nad-intro-active');
+
+        if (galaxyCanvas && typeof NadIntroGalaxy !== 'undefined') {
+            nadIntroGalaxy = new NadIntroGalaxy(galaxyCanvas);
+            nadIntroGalaxy.start();
+        }
+
+        return new Promise(resolve => {
+            nadIntroTimeline = gsap.timeline({
+                defaults: { ease: 'power2.out' },
+                onComplete: () => {
+                    stopNadIntroGalaxy();
+                    overlay.classList.remove('active');
+                    overlay.setAttribute('aria-hidden', 'true');
+                    document.body.classList.remove('nad-intro-active');
+                    gsap.set(overlay, { clearProps: 'opacity,visibility,pointerEvents' });
+                    gsap.set([...letters, tagline], { clearProps: 'all' });
+                    nadIntroTimeline = null;
+                    resolve();
+                },
+            });
+
+            nadIntroTimeline
+                .to(overlay, { opacity: 1, duration: 1.4, ease: 'power1.inOut' })
+                .to(letters[0], {
+                    opacity: 1,
+                    y: 0,
+                    scale: 1,
+                    filter: 'blur(0px)',
+                    duration: 2.4,
+                    ease: 'power3.out',
+                }, 0.7)
+                .to(letters[1], {
+                    opacity: 1,
+                    y: 0,
+                    scale: 1,
+                    filter: 'blur(0px)',
+                    duration: 2.4,
+                    ease: 'power3.out',
+                }, 2.55)
+                .to(letters[2], {
+                    opacity: 1,
+                    y: 0,
+                    scale: 1,
+                    filter: 'blur(0px)',
+                    duration: 2.4,
+                    ease: 'power3.out',
+                }, 4.4)
+                .to(tagline, {
+                    opacity: 1,
+                    y: 0,
+                    filter: 'blur(0px)',
+                    duration: 1.6,
+                    ease: 'power2.out',
+                }, 6.0)
+                .to({}, { duration: 1.2 })
+                .to(overlay, {
+                    opacity: 0,
+                    duration: 1.5,
+                    ease: 'power2.inOut',
+                }, 8.2);
+        });
     }
 
     async function waitForGardenLayout() {
@@ -1923,17 +2208,25 @@
 
     async function loadGarden(animateProfileName = null) {
         const requestId = ++gardenLoadRequestId;
+
+        const profilesPromise = fetch('/api/profiles/list').then(resp => resp.json());
+        await playNadGardenIntro();
+        if (requestId !== gardenLoadRequestId) return;
+
         showGardenStatus('🌌', 'Analizando capturas para tu campo resonante...');
 
         try {
-            const resp = await fetch('/api/profiles/list');
-            const data = await resp.json();
+            const data = await profilesPromise;
             if (requestId !== gardenLoadRequestId) return;
 
             if (!data.ok || !data.profiles || data.profiles.length === 0) {
+                gardenGlobalProfiles = [];
+                stopGardenGlobalMidi();
                 showGardenStatus('🌌', 'Tu campo resonante está vacío.<br><br>Realiza tu primera captura EEG para plantar la primera pulso.');
                 return;
             }
+
+            gardenGlobalProfiles = data.profiles;
 
             hideGardenStatus();
 
@@ -1954,10 +2247,12 @@
 
             gardenLoaded = true;
             await galaxyGarden.loadProfiles(data.profiles, animateProfileName);
+            void startGardenGlobalMidi(data.profiles);
         } catch (err) {
             console.error('Error loading garden:', err);
             if (requestId === gardenLoadRequestId) {
                 gardenLoaded = false;
+                stopGardenGlobalMidi();
                 showGardenStatus('⚠️', 'Error al cargar el campo resonante. Intenta actualizar.');
             }
         }
@@ -1978,6 +2273,12 @@
             }
         });
     }
+
+    document.addEventListener('pointerdown', () => {
+        if (!isGardenViewActive() || !gardenGlobalProfiles.length) return;
+        if (gardenGlobalMidiActive && gardenAudioContext?.state !== 'suspended') return;
+        void startGardenGlobalMidi(gardenGlobalProfiles, { forceRestart: true, primeAudio: true });
+    }, { passive: true });
 
     // ── Open Profile Modal (new main entry point) ──
     async function openProfileModal(profileData) {
@@ -2718,12 +3019,6 @@
                 ${bands.map(band => renderBandCard(band)).join('')}
             </div>
         </div>
-        <div class="analysis-card pulse-meaning-card">
-            <h3>🌺 Lectura de tu Pulso</h3>
-            <div class="pulse-meaning-text">
-                ${report.interpretation || 'Sin interpretación disponible.'}
-            </div>
-        </div>
         `;
     }
 
@@ -2737,7 +3032,7 @@
 
     function closeGardenModal() {
         stopGardenMidiPlayback();
-        if (gardenAudioContext && gardenAudioContext.state === 'running') {
+        if (!gardenGlobalMidiActive && gardenAudioContext && gardenAudioContext.state === 'running') {
             gardenAudioContext.suspend().catch(() => {});
         }
         gardenModal.style.display = 'none';
@@ -2779,7 +3074,7 @@
             // Stop MIDI when leaving current pulse detail back to captures
             if (tabName === 'garden-captures') {
                 stopGardenMidiPlayback();
-                if (gardenAudioContext && gardenAudioContext.state === 'running') {
+                if (!gardenGlobalMidiActive && gardenAudioContext && gardenAudioContext.state === 'running') {
                     gardenAudioContext.suspend().catch(() => {});
                 }
             }
