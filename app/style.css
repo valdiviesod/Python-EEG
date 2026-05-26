@@ -3490,10 +3490,15 @@ body.nad-intro-active {
     display: flex;
     align-items: center;
     justify-content: center;
-    flex-wrap: nowrap;
     opacity: 0;
     pointer-events: none;
     padding: 1rem;
+}
+
+.nad-intro-word-inner {
+    display: inline-flex;
+    align-items: baseline;
+    flex-wrap: nowrap;
 }
 
 .nad-word-big {
@@ -3513,8 +3518,6 @@ body.nad-intro-active {
     font-weight: 300;
     color: rgba(210, 218, 255, 0.82);
     letter-spacing: 0.01em;
-    align-self: flex-end;
-    padding-bottom: 0.22em;
     user-select: none;
     opacity: 0;
     flex-shrink: 0;

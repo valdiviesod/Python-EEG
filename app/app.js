@@ -21,8 +21,6 @@
     const GARDEN_PLAYBACK_MIN_SPACING = 0.08;       // minimum seconds between notes
     const GARDEN_PLAYBACK_SPEED = 1;            
     const GARDEN_CHANNEL_PAN = [-0.55, -0.18, 0.18, 0.55];
-    const GARDEN_GLOBAL_VOLUME = 0.68;
-    const GARDEN_GLOBAL_SPEED = 0.9;
 
     // Pentatonic major scale intervals from C (in semitones): C D E G A
     const GARDEN_PENTATONIC = [0, 2, 4, 7, 9];
@@ -369,14 +367,12 @@
 
             // Close garden modal when leaving garden view
             if (viewName !== 'garden') {
-                stopGardenGlobalMidi();
                 closeGardenModal();
             }
 
             // Galaxy: destroy when leaving garden to free GPU memory
             if (viewName === 'garden') {
                 if (!gardenLoaded) void loadGarden();
-                else void startGardenGlobalMidi(gardenGlobalProfiles);
             } else {
                 gardenLoadRequestId += 1;
                 if (nadIntroTimeline) {
@@ -390,7 +386,6 @@
                     document.body.classList.remove('nad-intro-active');
                 }
                 stopNadIntroGalaxy();
-                stopGardenGlobalMidi();
                 if (galaxyGarden) {
                     galaxyGarden.destroy();
                     galaxyGarden = null;
@@ -1911,15 +1906,6 @@
     let gardenMidiEndTimeout = null;    // timeout to detect MIDI end
     let currentPlaybackCaptureData = null; // capture data for replay
     let gardenGlobalProfiles = [];
-    let gardenGlobalProfilesSignature = '';
-    let gardenGlobalPlaybackPlan = null;
-    let gardenGlobalMidiActive = false;
-    let gardenGlobalMidiLoading = false;
-    let gardenGlobalMidiLoopId = 0;
-    let gardenGlobalMidiTimeouts = [];
-    let gardenGlobalMidiNodes = [];
-    let gardenGlobalMidiEndTimeout = null;
-    let gardenGlobalGain = null;
     const gardenSoundfontFallbackLogged = new Set();
 
     function startLinkedPulseForMidiReplay() {
@@ -1962,16 +1948,6 @@
         return gardenModal && gardenModal.style.display !== 'none';
     }
 
-    function pauseGardenGlobalMidiForModal() {
-        if (!gardenGlobalMidiActive && !gardenGlobalMidiLoading) return;
-        stopGardenGlobalMidi({ keepPlan: true });
-    }
-
-    function resumeGardenGlobalMidiAfterModal() {
-        if (!isGardenViewActive() || isGardenModalOpen() || !gardenGlobalProfiles.length) return;
-        void startGardenGlobalMidi(gardenGlobalProfiles, { forceRestart: true, primeAudio: true });
-    }
-
     function getGardenCaptureMetas(profiles) {
         return (profiles || [])
             .flatMap(profile => Array.isArray(profile?.captures) ? profile.captures : [])
@@ -1985,180 +1961,6 @@
             .join('|');
     }
 
-    function stopGardenGlobalMidi(options = {}) {
-        const keepPlan = Boolean(options.keepPlan);
-
-        if (gardenGlobalMidiEndTimeout !== null) {
-            clearTimeout(gardenGlobalMidiEndTimeout);
-            gardenGlobalMidiEndTimeout = null;
-        }
-        gardenGlobalMidiLoopId += 1;
-
-        gardenGlobalMidiTimeouts.forEach(timeoutId => clearTimeout(timeoutId));
-        gardenGlobalMidiTimeouts = [];
-
-        gardenGlobalMidiNodes.forEach(node => {
-            try { node.stop(); } catch (_) { }
-            try { node.disconnect(); } catch (_) { }
-        });
-        gardenGlobalMidiNodes = [];
-        gardenGlobalMidiActive = false;
-
-        if (!keepPlan) {
-            gardenGlobalPlaybackPlan = null;
-            gardenGlobalProfilesSignature = '';
-        }
-    }
-
-    async function buildGardenGlobalPlaybackPlan(profiles) {
-        const captures = getGardenCaptureMetas(profiles);
-        if (!captures.length || typeof Midi === 'undefined') return null;
-
-        const resp = await fetch('/api/garden/global-midi');
-        if (!resp.ok) {
-            const err = await resp.json().catch(() => ({}));
-            throw new Error(err.error || 'No se pudo generar el MIDI global');
-        }
-
-        const midi = new Midi(await resp.arrayBuffer());
-        return buildGardenPlaybackPlan(midi);
-    }
-
-    async function startGardenGlobalMidi(profiles, options = {}) {
-        if (!isGardenViewActive() || isGardenModalOpen() || !Array.isArray(profiles) || !profiles.length) return;
-
-        const signature = getGardenProfilesSignature(profiles);
-        if (!signature) return;
-
-        const forceRestart = Boolean(options.forceRestart);
-        const primeAudio = Boolean(options.primeAudio);
-        const samePlan = signature === gardenGlobalProfilesSignature && gardenGlobalPlaybackPlan;
-        if (gardenGlobalMidiActive && samePlan && !forceRestart) return;
-        if (gardenGlobalMidiLoading && !forceRestart) return;
-        if (!primeAudio && (!gardenAudioContext || gardenAudioContext.state !== 'running')) return;
-
-        if (!samePlan) {
-            stopGardenGlobalMidi();
-            gardenGlobalProfilesSignature = signature;
-        } else if (forceRestart) {
-            stopGardenGlobalMidi({ keepPlan: true });
-            gardenGlobalProfilesSignature = signature;
-        }
-
-        gardenGlobalMidiLoading = true;
-        const requestId = gardenGlobalMidiLoopId;
-        let ctx = null;
-        try {
-            if (forceRestart || primeAudio) {
-                ctx = await getGardenAudioContext();
-                if (ctx.state === 'suspended') return;
-            }
-
-            const rawPlaybackPlan = gardenGlobalPlaybackPlan || await buildGardenGlobalPlaybackPlan(profiles);
-            const playbackPlan = rawPlaybackPlan ? {
-                notes: rawPlaybackPlan.notes.map(note => ({
-                    ...note,
-                    time: note.time / GARDEN_GLOBAL_SPEED,
-                    duration: note.duration / GARDEN_GLOBAL_SPEED,
-                })),
-                totalDuration: rawPlaybackPlan.totalDuration / GARDEN_GLOBAL_SPEED,
-            } : null;
-            if (requestId !== gardenGlobalMidiLoopId || !playbackPlan || !isGardenViewActive() || isGardenModalOpen()) return;
-            gardenGlobalPlaybackPlan = rawPlaybackPlan;
-
-            ctx = ctx || await getGardenAudioContext();
-            if (requestId !== gardenGlobalMidiLoopId || !isGardenViewActive() || isGardenModalOpen() || ctx.state === 'suspended') return;
-
-            if (!gardenGlobalGain) {
-                gardenGlobalGain = ctx.createGain();
-                gardenGlobalGain.connect(ctx.destination);
-            }
-            gardenGlobalGain.gain.value = GARDEN_GLOBAL_VOLUME;
-
-            gardenGlobalMidiActive = true;
-            const playbackId = ++gardenGlobalMidiLoopId;
-            scheduleGardenGlobalMidiLoop(ctx, playbackPlan, playbackId);
-        } catch (err) {
-            console.error('Error reproduciendo MIDI global del campo resonante:', err);
-        } finally {
-            gardenGlobalMidiLoading = false;
-        }
-    }
-
-    function scheduleGardenGlobalMidiLoop(ctx, playbackPlan, playbackId) {
-        if (!playbackPlan || !Array.isArray(playbackPlan.notes) || !playbackPlan.notes.length) return;
-        if (playbackId !== gardenGlobalMidiLoopId || !isGardenViewActive() || isGardenModalOpen()) return;
-
-        const notes = playbackPlan.notes;
-        const loopDuration = playbackPlan.totalDuration;
-        const baseTime = ctx.currentTime + 0.08;
-
-        const resolvedInstruments = GARDEN_INSTRUMENTS.map(
-            name => gardenInstruments[name] || gardenInstruments[GARDEN_INSTRUMENTS[0]]
-        );
-        if (!resolvedInstruments[0]) return;
-
-        notes.forEach(note => {
-            const delayMs = Math.max(0, (baseTime - ctx.currentTime + note.time) * 1000);
-            const timeoutId = setTimeout(() => {
-                if (playbackId !== gardenGlobalMidiLoopId || !isGardenViewActive() || isGardenModalOpen()) return;
-
-                const channelIdx = Math.max(0, note.channel % 4);
-                const instrument = resolvedInstruments[channelIdx];
-                const midiValue = note.midi || 60;
-                const duration = note.duration || 0.5;
-                const gain = Math.max(0.12, Math.min(0.5, (note.velocity || 0.12) * 0.9));
-                const pan = GARDEN_CHANNEL_PAN[channelIdx] * 0.75;
-
-                try {
-                    const player = instrument.play(midiValue, ctx.currentTime, { duration, gain });
-                    if (!player) return;
-
-                    try { player.disconnect(); } catch (_) { }
-
-                    if (typeof ctx.createStereoPanner === 'function' && gardenGlobalGain) {
-                        const panner = ctx.createStereoPanner();
-                        panner.pan.setValueAtTime(pan, ctx.currentTime);
-                        player.connect(panner);
-                        panner.connect(gardenGlobalGain);
-                    } else if (gardenGlobalGain) {
-                        player.connect(gardenGlobalGain);
-                    }
-
-                    gardenGlobalMidiNodes.push(player);
-                    const cleanupId = setTimeout(() => {
-                        const idx = gardenGlobalMidiNodes.indexOf(player);
-                        if (idx >= 0) gardenGlobalMidiNodes.splice(idx, 1);
-                    }, (duration + 0.5) * 1000);
-                    gardenGlobalMidiTimeouts.push(cleanupId);
-                } catch (err) {
-                    console.warn('Global garden MIDI note error:', err);
-                }
-            }, delayMs);
-
-            gardenGlobalMidiTimeouts.push(timeoutId);
-        });
-
-        gardenGlobalMidiEndTimeout = setTimeout(() => {
-            if (playbackId !== gardenGlobalMidiLoopId || !isGardenViewActive() || isGardenModalOpen()) return;
-            gardenGlobalMidiTimeouts = [];
-            scheduleGardenGlobalMidiLoop(ctx, playbackPlan, playbackId);
-        }, Math.max(1000, (loopDuration + 1.0) * 1000));
-        gardenGlobalMidiTimeouts.push(gardenGlobalMidiEndTimeout);
-    }
-
-    function scheduleGardenGlobalMidiDeferred(profiles, requestId) {
-        const start = () => {
-            if (requestId !== gardenLoadRequestId) return;
-            if (!isGardenViewActive() || isGardenModalOpen()) return;
-            void startGardenGlobalMidi(profiles);
-        };
-        if (typeof requestIdleCallback === 'function') {
-            requestIdleCallback(start, { timeout: 2500 });
-        } else {
-            setTimeout(start, 600);
-        }
-    }
 
     let nadIntroTimeline = null;
     let nadIntroGalaxy = null;
@@ -2285,7 +2087,6 @@
 
             if (!data.ok || !data.profiles || data.profiles.length === 0) {
                 gardenGlobalProfiles = [];
-                stopGardenGlobalMidi();
                 showGardenStatus('🌌', 'Tu campo resonante está vacío.<br><br>Realiza tu primera captura EEG para plantar la primera pulso.');
                 return;
             }
@@ -2310,13 +2111,11 @@
 
             gardenLoaded = true;
             await galaxyGarden.loadProfiles(data.profiles, animateProfileName);
-            scheduleGardenGlobalMidiDeferred(data.profiles, requestId);
         } catch (err) {
             clearTimeout(loadingTimer);
             console.error('Error loading garden:', err);
             if (requestId === gardenLoadRequestId) {
                 gardenLoaded = false;
-                stopGardenGlobalMidi();
                 showGardenStatus('⚠️', 'Error al cargar el campo resonante. Intenta actualizar.');
             }
         }
@@ -2338,12 +2137,6 @@
         });
     }
 
-    document.addEventListener('pointerdown', () => {
-        if (!isGardenViewActive() || !gardenGlobalProfiles.length) return;
-        if (isGardenModalOpen()) return;
-        if (gardenGlobalMidiActive && gardenAudioContext?.state !== 'suspended') return;
-        void startGardenGlobalMidi(gardenGlobalProfiles, { forceRestart: true, primeAudio: true });
-    }, { passive: true });
 
     // ── Open Profile Modal (new main entry point) ──
     async function openProfileModal(profileData) {
@@ -2375,7 +2168,6 @@
 
         gardenModal.style.display = 'flex';
 
-        pauseGardenGlobalMidiForModal();
 
         // Stop previous pulse
         if (gardenPulse2d) { gardenPulse2d.stop(); gardenPulse2d = null; }
@@ -2702,7 +2494,6 @@
         gardenPanels.forEach(p => p.classList.toggle('active', p.id === 'gpanel-garden-2d'));
 
         gardenModal.style.display = 'flex';
-        pauseGardenGlobalMidiForModal();
         fitPulseCanvas(canvas2dGarden);
         gardenPulse2d.start();
         midiLinkedPulse = gardenPulse2d;
@@ -3116,8 +2907,6 @@
         const tabAnalysis = document.getElementById('gtab-analysis');
         if (tab2d) tab2d.disabled = true;
         if (tabAnalysis) tabAnalysis.disabled = true;
-
-        resumeGardenGlobalMidiAfterModal();
     }
 
     // Modal tabs

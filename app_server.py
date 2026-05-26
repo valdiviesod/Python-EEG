@@ -40,11 +40,6 @@ from pulse_to_3d_print import convert
 from safe_json_storage import default_json_dirs, first_writable_dir, write_json_with_fallback
 
 
-GLOBAL_MIDI_MAX_CAPTURES = 64
-GLOBAL_MIDI_SAMPLES_PER_CAPTURE = 24
-GLOBAL_MIDI_CAPTURE_SECONDS = 1.2
-GLOBAL_MIDI_GAP_SAMPLES = 2
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Pulse helpers
@@ -228,69 +223,6 @@ def sample_values(values: list, max_samples: int) -> list[float]:
     last_idx = len(values) - 1
     step = last_idx / (max_samples - 1)
     return [_safe_float(values[round(i * step)]) for i in range(max_samples)]
-
-
-def build_global_midi_capture_json() -> dict:
-    """Build a compact EEG JSON from recent captures for background MIDI."""
-    index = load_capture_index()
-    captures = [c for c in index['captures'] if (c.get('total_samples') or 0) >= 32]
-    captures = captures[:GLOBAL_MIDI_MAX_CAPTURES]
-
-    global_json = {
-        'metadata': {
-            'user_name': 'Campo resonante global',
-            'profile_name': 'Campo resonante global',
-            'user_state': 'Sumatorio muestreado de pulsos',
-            'capture_timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'duration_seconds': 0.0,
-            'total_samples': 0,
-            'sample_rate_hz': GLOBAL_MIDI_SAMPLES_PER_CAPTURE / GLOBAL_MIDI_CAPTURE_SECONDS,
-            'source_capture_count': 0,
-            'source_capture_limit': GLOBAL_MIDI_MAX_CAPTURES,
-            'samples_per_capture': GLOBAL_MIDI_SAMPLES_PER_CAPTURE,
-        },
-        'eeg_channels': {
-            'channel_1': [],
-            'channel_2': [],
-            'channel_3': [],
-            'channel_4': [],
-        },
-    }
-
-    for capture in captures:
-        filepath = resolve_capture_file(capture.get('filename', ''))
-        if not filepath:
-            continue
-        try:
-            data = json.loads(filepath.read_text(encoding='utf-8'))
-            eeg_channels = data.get('eeg_channels', {})
-            sampled_by_channel = []
-            max_len = 0
-            for ch in range(1, 5):
-                values = eeg_channels.get(f'channel_{ch}', [])
-                sampled = sample_values(values if isinstance(values, list) else [], GLOBAL_MIDI_SAMPLES_PER_CAPTURE)
-                sampled_by_channel.append(sampled)
-                max_len = max(max_len, len(sampled))
-            if max_len <= 0:
-                continue
-
-            for ch, sampled in enumerate(sampled_by_channel, start=1):
-                target = global_json['eeg_channels'][f'channel_{ch}']
-                target.extend(sampled + [0.0] * (max_len - len(sampled)))
-                target.extend([0.0] * GLOBAL_MIDI_GAP_SAMPLES)
-
-            global_json['metadata']['source_capture_count'] += 1
-        except Exception as exc:
-            print(f'⚠️  Global MIDI: captura omitida {capture.get("filename", "")}: {exc}')
-
-    total_samples = max(len(v) for v in global_json['eeg_channels'].values())
-    capture_count = global_json['metadata']['source_capture_count']
-    global_json['metadata']['total_samples'] = total_samples
-    global_json['metadata']['duration_seconds'] = max(
-        1.0,
-        capture_count * GLOBAL_MIDI_CAPTURE_SECONDS,
-    )
-    return global_json
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -827,17 +759,6 @@ class AppHandler(SimpleHTTPRequestHandler):
                 self._send_json(500, {'ok': False, 'error': str(exc)})
             return
 
-        # ── Garden: compact global MIDI for background playback ──
-        if parsed.path == '/api/garden/global-midi':
-            try:
-                self._handle_garden_global_midi()
-            except BrokenPipeError:
-                return
-            except Exception as exc:
-                traceback.print_exc()
-                self._send_json(500, {'ok': False, 'error': str(exc)})
-            return
-
         # ── Profiles: list profiles ──
         if parsed.path == '/api/profiles/list':
             try:
@@ -991,37 +912,6 @@ class AppHandler(SimpleHTTPRequestHandler):
             self.wfile.write(body)
         except BrokenPipeError:
             return
-
-    def _handle_garden_global_midi(self):
-        json_data = build_global_midi_capture_json()
-        if json_data['metadata'].get('source_capture_count', 0) <= 0:
-            self._send_json(404, {'ok': False, 'error': 'No hay capturas EEG para MIDI global'})
-            return
-
-        with tempfile.TemporaryDirectory(prefix='app_global_midi_') as tmpdir:
-            tmp_path = Path(tmpdir)
-            json_file = tmp_path / 'global_eeg.json'
-            midi_file = tmp_path / 'global_output.mid'
-
-            json_file.write_text(json.dumps(json_data, ensure_ascii=False), encoding='utf-8')
-
-            converter = MuseOSCToMidi(output_file=str(midi_file))
-            converter.json_to_midi(str(json_file), str(midi_file))
-
-            if not midi_file.exists():
-                self._send_json(500, {'ok': False, 'error': 'No se pudo generar el MIDI global'})
-                return
-
-            midi_bytes = midi_file.read_bytes()
-            self.send_response(200)
-            self.send_header('Content-Type', 'audio/midi')
-            self.send_header('Content-Disposition', 'attachment; filename="campo_resonante_global.mid"')
-            self.send_header('Content-Length', str(len(midi_bytes)))
-            self.end_headers()
-            try:
-                self.wfile.write(midi_bytes)
-            except BrokenPipeError:
-                return
 
     def _handle_garden_upload(self, payload: dict | None, source_filename: str = '',
                               profile_name_override: str = ''):

@@ -1173,8 +1173,10 @@ class GalaxyGarden {
                     anim.active = false;
                 }
             } else if (!star.group.userData.vanishAnim?.active && !star.group.userData.appearAnim?.active) {
-                // Hide other stars while vanish is playing
-                if (hasActiveVanish) {
+                // Hide non-featured stars while vanish is playing.
+                // Stars that have a vanishAnim object (the featured star) are excluded —
+                // otherwise the featured star hides itself on the exact frame its anim completes.
+                if (hasActiveVanish && !star.group.userData.vanishAnim) {
                     star.group.scale.set(this._minScale, this._minScale, this._minScale);
                 }
             }
