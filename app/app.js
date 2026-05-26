@@ -2247,6 +2247,7 @@
                 .to({}, { duration: 1.4 })
                 // Fade out
                 .to(overlay, { opacity: 0, duration: 0.9, ease: 'power2.inOut' });
+        });
     }
 
     function waitForNextFrame() {
