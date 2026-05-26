@@ -1210,21 +1210,21 @@ class AppHandler(SimpleHTTPRequestHandler):
             self._send_json(400, {'ok': False, 'error': 'oldName y newName son requeridos'})
             return
         norm_target = normalize_profile_name(old_name)
-        captures_dir = get_captures_dir()
         updated = 0
-        for f in captures_dir.glob('*.json'):
-            try:
-                data = json.loads(f.read_text(encoding='utf-8'))
-                name_in_file = get_capture_profile_name(data)
-                if normalize_profile_name(name_in_file) == norm_target:
-                    if 'metadata' not in data:
-                        data['metadata'] = {}
-                    data['metadata']['profile_name'] = new_name
-                    data['metadata']['user_name'] = new_name
-                    f.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
-                    updated += 1
-            except Exception:
-                continue
+        for captures_dir in get_all_captures_dirs():
+            for f in captures_dir.glob('*.json'):
+                try:
+                    data = json.loads(f.read_text(encoding='utf-8'))
+                    name_in_file = get_capture_profile_name(data)
+                    if normalize_profile_name(name_in_file) == norm_target:
+                        if 'metadata' not in data:
+                            data['metadata'] = {}
+                        data['metadata']['profile_name'] = new_name
+                        data['metadata']['user_name'] = new_name
+                        f.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+                        updated += 1
+                except Exception:
+                    continue
         print(f'✏️ Perfil renombrado: "{old_name}" → "{new_name}" ({updated} capturas)')
         self._send_json(200, {'ok': True, 'updated': updated, 'newName': new_name})
 
@@ -1234,17 +1234,17 @@ class AppHandler(SimpleHTTPRequestHandler):
             self._send_json(400, {'ok': False, 'error': 'Falta name'})
             return
         norm_target = normalize_profile_name(name)
-        captures_dir = get_captures_dir()
         deleted = 0
-        for f in list(captures_dir.glob('*.json')):
-            try:
-                data = json.loads(f.read_text(encoding='utf-8'))
-                name_in_file = get_capture_profile_name(data)
-                if normalize_profile_name(name_in_file) == norm_target:
-                    f.unlink()
-                    deleted += 1
-            except Exception:
-                continue
+        for captures_dir in get_all_captures_dirs():
+            for f in list(captures_dir.glob('*.json')):
+                try:
+                    data = json.loads(f.read_text(encoding='utf-8'))
+                    name_in_file = get_capture_profile_name(data)
+                    if normalize_profile_name(name_in_file) == norm_target:
+                        f.unlink()
+                        deleted += 1
+                except Exception:
+                    continue
         print(f'🗑️ Perfil eliminado: "{name}" ({deleted} capturas)')
         self._send_json(200, {'ok': True, 'deleted': deleted})
 
