@@ -27,6 +27,17 @@ _SYNC_LOCK = threading.Lock()
 _SYNC_PENDING = False
 _SYNC_TIMER: threading.Timer | None = None
 _DEBOUNCE_SECONDS = 1.5
+_SYNC_DISABLED = False
+
+
+def set_sync_disabled(disabled: bool) -> None:
+    """Disable remote garden sync (e.g. app_server -nosync)."""
+    global _SYNC_DISABLED
+    _SYNC_DISABLED = disabled
+
+
+def _sync_allowed() -> bool:
+    return _is_enabled() and not _SYNC_DISABLED
 
 
 def _load_env() -> dict[str, str]:
@@ -128,7 +139,7 @@ def build_sync_payload() -> dict:
 
 
 def sync_remote_garden_now() -> bool:
-    if not _is_enabled():
+    if not _sync_allowed():
         return False
 
     base_url = _remote_base_url()
@@ -182,7 +193,7 @@ def _run_debounced_sync():
 
 def schedule_remote_garden_sync():
     """Debounce background sync after local capture/garden mutations."""
-    if not _is_enabled():
+    if not _sync_allowed():
         return
 
     global _SYNC_PENDING, _SYNC_TIMER

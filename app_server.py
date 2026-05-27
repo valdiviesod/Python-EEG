@@ -38,7 +38,7 @@ import numpy as np
 from muse_capture import MuseOSCToMidi
 from pulse_to_3d_print import convert
 from safe_json_storage import default_json_dirs, first_writable_dir, write_json_with_fallback
-from remote_garden_sync import schedule_remote_garden_sync
+from remote_garden_sync import schedule_remote_garden_sync, set_sync_disabled
 
 
 
@@ -1199,10 +1199,19 @@ def main():
     parser.add_argument('--port', type=int, default=8090, help='Puerto HTTP (default: 8090)')
     parser.add_argument('--osc-ip', default='0.0.0.0', help='IP OSC para Muse (default: 0.0.0.0 para escuchar en toda la red local)')
     parser.add_argument('--osc-port', type=int, default=5000, help='Puerto OSC para Muse (default: 5000)')
+    parser.add_argument(
+        '-nosync',
+        '--nosync',
+        action='store_true',
+        help='No sincronizar capturas al servidor remoto del campo resonante',
+    )
     args = parser.parse_args()
 
     workspace = Path(__file__).resolve().parent
     os.chdir(workspace)
+
+    if args.nosync:
+        set_sync_disabled(True)
 
     global CAPTURE
     CAPTURE = WebCaptureController(osc_ip=args.osc_ip, osc_port=args.osc_port)
@@ -1216,6 +1225,8 @@ def main():
     print(f'  Pulse:  {url}/pulse/     (legacy)')
     print(f'  API:     {url}/api/...')
     print(f'  OSC:     Muse en {args.osc_ip}:{args.osc_port}')
+    if args.nosync:
+        print('  Sync:    desactivado (-nosync)')
     print('═' * 72)
     print()
 
