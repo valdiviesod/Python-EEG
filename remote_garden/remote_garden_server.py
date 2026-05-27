@@ -29,6 +29,7 @@ ROOT = Path(__file__).resolve().parent
 WORKSPACE = ROOT.parent
 WEB_DIR = ROOT / 'web'
 PULSE_DIR = WORKSPACE / 'pulse'
+APP_DIR = WORKSPACE / 'app'
 DEFAULT_DATA_DIR = ROOT / 'data'
 
 _STORE_LOCK = Lock()
@@ -197,6 +198,9 @@ class RemoteGardenHandler(SimpleHTTPRequestHandler):
 
         if path == '/style.css':
             return self._serve_file(WEB_DIR / 'style.css', 'text/css; charset=utf-8')
+
+        if path == '/nad_intro_galaxy.js':
+            return self._serve_file(APP_DIR / 'nad_intro_galaxy.js', 'application/javascript; charset=utf-8')
 
         if path.startswith('/pulse/'):
             rel = path[len('/pulse/'):]
