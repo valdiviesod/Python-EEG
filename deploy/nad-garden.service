@@ -1,0 +1,17 @@
+[Unit]
+Description=NAD Campo resonante remoto (GalaxyGarden mirror)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/Python-EEG
+ExecStart=/usr/bin/python3 /root/Python-EEG/remote_garden/remote_garden_server.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
