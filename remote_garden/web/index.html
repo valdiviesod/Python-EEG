@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Campo resonante — NAD</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+
+<body class="remote-garden-body">
+    <main class="remote-garden-page">
+        <div class="garden-search" id="garden-search">
+            <input type="text" id="garden-search-input" placeholder="Buscar pulso..." autocomplete="off">
+        </div>
+
+        <div class="garden-3d-wrap" id="garden-3d-wrap">
+            <div id="garden-2d-scene"></div>
+
+            <div class="garden-status-overlay" id="garden-status" style="display:none">
+                <div class="garden-status-content" id="garden-status-content">
+                    <div class="garden-loading-icon">🌌</div>
+                    <p>Cargando campo resonante...</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="remote-garden-badge" id="remote-garden-badge" aria-live="polite"></div>
+    </main>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="/pulse/eeg_band_analyzer.js"></script>
+    <script src="/pulse/lava_pulse.js"></script>
+    <script src="/pulse/galaxy.js?v=20260527-remote"></script>
+    <script src="/app.js"></script>
+</body>
+
+</html>

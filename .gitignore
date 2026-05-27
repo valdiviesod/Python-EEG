@@ -44,3 +44,7 @@ flor_neurofuncional_*mm_stl/
 
 # Auto-saved EEG captures (user data)
 captures/
+
+# Local / remote secrets and persisted mirror state
+.env
+remote_garden/data/

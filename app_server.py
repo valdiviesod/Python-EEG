@@ -38,6 +38,7 @@ import numpy as np
 from muse_capture import MuseOSCToMidi
 from pulse_to_3d_print import convert
 from safe_json_storage import default_json_dirs, first_writable_dir, write_json_with_fallback
+from remote_garden_sync import schedule_remote_garden_sync
 
 
 
@@ -469,6 +470,7 @@ class WebCaptureController:
                 indent=2,
             )
             print(f'💾 Captura guardada automáticamente: {filepath}')
+            schedule_remote_garden_sync()
         except Exception as exc:
             print(f'⚠️ No se pudo guardar la captura automáticamente: {exc}')
             traceback.print_exc()
@@ -969,6 +971,7 @@ class AppHandler(SimpleHTTPRequestHandler):
         response_payload = dict(payload)
         response_payload['filename'] = saved_path.name
         self._send_json(200, {'ok': True, 'filename': saved_path.name, 'capture': response_payload})
+        schedule_remote_garden_sync()
 
     def _handle_garden_latest(self):
         captures_dir = get_captures_dir()
@@ -1025,6 +1028,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                 'filename': filename,
                 'user_state': user_state,
             })
+            schedule_remote_garden_sync()
         except Exception as exc:
             traceback.print_exc()
             self._send_json(500, {'ok': False, 'error': f'Error al actualizar estado: {exc}'})
@@ -1043,6 +1047,7 @@ class AppHandler(SimpleHTTPRequestHandler):
         filepath.unlink()
         print(f'🗑️ Captura eliminada: {filename}')
         self._send_json(200, {'ok': True, 'message': f'Captura "{filename}" eliminada.'})
+        schedule_remote_garden_sync()
 
     # ── Profiles API handlers ──────────────────────────────────────────────
 
@@ -1130,6 +1135,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                     continue
         print(f'✏️ Perfil renombrado: "{old_name}" → "{new_name}" ({updated} capturas)')
         self._send_json(200, {'ok': True, 'updated': updated, 'newName': new_name})
+        schedule_remote_garden_sync()
 
     def _handle_profiles_delete(self, name: str):
         name = name.strip()
@@ -1150,6 +1156,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                     continue
         print(f'🗑️ Perfil eliminado: "{name}" ({deleted} capturas)')
         self._send_json(200, {'ok': True, 'deleted': deleted})
+        schedule_remote_garden_sync()
 
     def _handle_garden_rename(self, filename: str, new_name: str):
         if not filename or '..' in filename or '/' in filename or '\\' in filename:
@@ -1174,6 +1181,7 @@ class AppHandler(SimpleHTTPRequestHandler):
             filepath.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
             print(f'✏️ Captura renombrada: {filename} → "{new_name}"')
             self._send_json(200, {'ok': True, 'message': f'Nombre actualizado a "{new_name}".'})
+            schedule_remote_garden_sync()
         except Exception as exc:
             traceback.print_exc()
             self._send_json(500, {'ok': False, 'error': f'Error al renombrar: {exc}'})
@@ -1210,6 +1218,8 @@ def main():
     print(f'  OSC:     Muse en {args.osc_ip}:{args.osc_port}')
     print('═' * 72)
     print()
+
+    schedule_remote_garden_sync()
 
     try:
         server.serve_forever()
