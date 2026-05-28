@@ -28,6 +28,48 @@
         <div class="remote-garden-badge" id="remote-garden-badge" aria-live="polite"></div>
     </main>
 
+    <!-- Garden Modal — Profile View -->
+    <div class="garden-modal-overlay" id="garden-modal" style="display:none">
+        <div class="garden-modal">
+            <button class="garden-modal-close" id="garden-modal-close">✕</button>
+            <div class="garden-modal-header" id="garden-modal-header">
+                <h3 id="garden-modal-title">—</h3>
+                <p id="garden-modal-meta">—</p>
+            </div>
+            <div class="garden-modal-actions">
+                <button class="btn-secondary" id="garden-btn-download-midi" disabled>
+                    <span>🎵</span> Descargar MIDI
+                </button>
+                <button class="btn-secondary" id="garden-btn-replay-midi" style="display:none">
+                    <span>🔄</span> Volver a reproducir
+                </button>
+            </div>
+            <nav class="tabs garden-modal-tabs" id="garden-modal-tabs">
+                <button class="tab active" data-gtab="garden-captures">📋 Capturas</button>
+                <button class="tab" data-gtab="garden-2d" id="gtab-2d" disabled>💫 Pulso 2D</button>
+                <button class="tab" data-gtab="garden-analysis" id="gtab-analysis" disabled>🔬 Análisis</button>
+            </nav>
+            <div class="garden-modal-body">
+                <!-- Captures list panel -->
+                <div class="garden-modal-panel active" id="gpanel-garden-captures">
+                    <div class="profile-captures-list" id="profile-captures-list">
+                        <p class="captures-loading">Cargando capturas...</p>
+                    </div>
+                </div>
+                <!-- 2D Pulse panel -->
+                <div class="garden-modal-panel" id="gpanel-garden-2d">
+                    <div class="canvas-wrapper">
+                        <canvas id="garden-pulse-2d-canvas"></canvas>
+                    </div>
+                </div>
+                <!-- Analysis panel -->
+                <div class="garden-modal-panel" id="gpanel-garden-analysis">
+                    <div class="analysis-grid" id="garden-analysis-content"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- NAD intro — pantalla completa antes del campo resonante -->
     <div id="nad-garden-intro" class="nad-garden-intro" aria-hidden="true">
         <div class="nad-intro-cosmos" aria-hidden="true">
@@ -54,10 +96,12 @@
     <script src="https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="/pulse/eeg_band_analyzer.js"></script>
     <script src="/pulse/lava_pulse.js"></script>
-    <script src="/pulse/galaxy.js?v=20260527-remote"></script>
+    <script src="/pulse/galaxy.js?v=20260528-nad-api"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.28/build/Midi.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/soundfont-player@0.12.0/dist/soundfont-player.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
     <script src="/nad_intro_galaxy.js?v=20260526-nostar"></script>
-    <script src="/app.js?v=20260527-nad"></script>
+    <script src="/app.js?v=20260528-nad-api"></script>
 </body>
 
 </html>

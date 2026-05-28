@@ -15,14 +15,24 @@ Configure via .env (not committed):
 from __future__ import annotations
 
 import argparse
+import io
 import json
+import math
 import os
+import re
 import time
 import traceback
+import unicodedata
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Lock
 from urllib.parse import parse_qs, urlparse
+
+try:
+    from midiutil import MIDIFile
+    _HAS_MIDIUTIL = True
+except ImportError:
+    _HAS_MIDIUTIL = False
 
 
 ROOT = Path(__file__).resolve().parent
@@ -70,6 +80,97 @@ def _data_file() -> Path:
 def _sync_key_expected() -> str:
     env = _load_env()
     return str(env.get('GARDEN_SYNC_KEY', env.get('REMOTE_GARDEN_SYNC_KEY', ''))).strip()
+
+
+# ─── Profile lookup / MIDI helpers (mirror app_server logic) ──────────────────
+
+def _normalize_profile_name(name: str) -> str:
+    s = str(name or '').strip().lower()
+    s = ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
+    s = re.sub(r'[^a-z0-9]+', '', s)
+    return s
+
+
+def _find_profile_by_name(name: str) -> dict | None:
+    norm = _normalize_profile_name(name)
+    if not norm:
+        return None
+    with _STORE_LOCK:
+        for prof in _STORE['profiles']:
+            if _normalize_profile_name(prof.get('profile_name', '')) == norm:
+                return prof
+            if _normalize_profile_name(prof.get('slug', '')) == norm:
+                return prof
+    return None
+
+
+def _map_eeg_to_midi_note(eeg_value: float, channel: int) -> int:
+    if eeg_value < 0:
+        eeg_value = 0
+    abs_value = abs(eeg_value)
+    return int((abs_value % 87) + 21)
+
+
+def _calculate_note_velocity(eeg_value: float) -> int:
+    abs_value = abs(eeg_value)
+    return int((abs_value % 127) + 1)
+
+
+def _json_to_midi_bytes(data: dict) -> bytes:
+    """Mirror of muse_capture.MuseOSCToMidi.json_to_midi without numpy/matplotlib."""
+    if not _HAS_MIDIUTIL:
+        raise RuntimeError('midiutil no instalado en el servidor remoto')
+
+    eeg_channels = data.get('eeg_channels', {})
+    metadata = data.get('metadata', {})
+
+    max_samples = max(
+        (len(eeg_channels.get(f'channel_{i}', [])) for i in range(1, 5)),
+        default=0,
+    )
+    if max_samples == 0:
+        raise ValueError('No hay datos EEG en el archivo JSON')
+
+    duration_seconds = metadata.get('duration_seconds') or 10.0
+
+    mid = MIDIFile(4, file_format=1)
+    instruments = [19, 18, 47, 48]
+    track_names = ['TP9 Church Organ', 'AF7 Rock Organ', 'AF8 Timpani', 'TP10 String Ensemble']
+    tempo_bpm = 180
+
+    for track in range(4):
+        mid.addTrackName(track, 0, track_names[track])
+        mid.addTempo(track, 0, tempo_bpm)
+        mid.addProgramChange(track, track, 0, instruments[track])
+
+    note_duration = duration_seconds / max_samples
+
+    for channel in range(1, 5):
+        channel_key = f'channel_{channel}'
+        if channel_key not in eeg_channels:
+            continue
+        channel_data = eeg_channels[channel_key]
+        track_idx = channel - 1
+        n = len(channel_data)
+        if n == 0:
+            continue
+        for i, eeg_val in enumerate(channel_data):
+            if eeg_val is None:
+                continue
+            try:
+                v = float(eeg_val)
+            except (TypeError, ValueError):
+                continue
+            if math.isnan(v) or v == 0:
+                continue
+            time_in_beats = (i / n) * (duration_seconds / 0.3333)
+            midi_note = _map_eeg_to_midi_note(v, track_idx)
+            velocity = _calculate_note_velocity(v)
+            mid.addNote(track_idx, track_idx, midi_note, time_in_beats, note_duration * 2, velocity)
+
+    buf = io.BytesIO()
+    mid.writeFile(buf)
+    return buf.getvalue()
 
 
 def _persist_state():
@@ -147,6 +248,41 @@ class RemoteGardenHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
+
+        if parsed.path == '/api/json-to-midi':
+            try:
+                body = self._read_json_body()
+                json_data = body.get('jsonData')
+                if not isinstance(json_data, dict) or 'eeg_channels' not in json_data or 'metadata' not in json_data:
+                    self._send_json(400, {'ok': False, 'error': 'JSON EEG inválido'})
+                    return
+                try:
+                    midi_bytes = _json_to_midi_bytes(json_data)
+                except ValueError as ve:
+                    self._send_json(400, {'ok': False, 'error': str(ve)})
+                    return
+                except RuntimeError as re_:
+                    self._send_json(500, {'ok': False, 'error': str(re_)})
+                    return
+
+                name = (json_data.get('metadata') or {}).get('user_name') or 'eeg'
+                safe = ''.join(c if c.isalnum() or c in '-_ ' else '' for c in str(name)).strip().replace(' ', '_') or 'eeg'
+                filename = f'{safe}_{int(time.time())}.mid'
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'audio/midi')
+                self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
+                self.send_header('Content-Length', str(len(midi_bytes)))
+                self.end_headers()
+                try:
+                    self.wfile.write(midi_bytes)
+                except BrokenPipeError:
+                    return
+            except Exception as exc:
+                traceback.print_exc()
+                self._send_json(500, {'ok': False, 'error': f'Error en conversión JSON a MIDI: {exc}'})
+            return
+
         if parsed.path == '/api/sync':
             try:
                 body = self._read_json_body()
@@ -235,6 +371,28 @@ class RemoteGardenHandler(SimpleHTTPRequestHandler):
                     'capture_count': len(_STORE['captures']),
                 }
             self._send_json(200, payload)
+            return
+
+        if path == '/api/profiles/captures':
+            query = parse_qs(parsed.query)
+            name = query.get('name', [''])[0]
+            if not name:
+                self._send_json(400, {'ok': False, 'error': 'Falta parámetro name'})
+                return
+            prof = _find_profile_by_name(name)
+            if not prof:
+                self._send_json(200, {'ok': True, 'profile_name': name, 'captures': []})
+                return
+            caps = sorted(
+                prof.get('captures', []) or [],
+                key=lambda c: c.get('capture_timestamp', ''),
+                reverse=True,
+            )
+            self._send_json(200, {
+                'ok': True,
+                'profile_name': prof.get('profile_name', name),
+                'captures': caps,
+            })
             return
 
         if path == '/api/garden/file':

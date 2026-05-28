@@ -8,6 +8,17 @@
  * Click star → opens existing garden modal.
  */
 
+function _nadGardenApi(path) {
+    if (typeof window !== 'undefined' && typeof window.NAD_API_BASE === 'string') {
+        return `${window.NAD_API_BASE}${path}`;
+    }
+    if (typeof window !== 'undefined') {
+        const p = window.location.pathname || '';
+        if (p === '/nad' || p.startsWith('/nad/')) return `/nad${path}`;
+    }
+    return path;
+}
+
 class GalaxyGarden {
     constructor(containerId, onPulseClick) {
         this.container = document.getElementById(containerId);
@@ -527,7 +538,7 @@ class GalaxyGarden {
         const items = [];
         for (const captureMeta of capturesList) {
             try {
-                const resp = await fetch(`/api/garden/file?name=${encodeURIComponent(captureMeta.filename)}`);
+                const resp = await fetch(`${_nadGardenApi('/api/garden/file')}?name=${encodeURIComponent(captureMeta.filename)}`);
                 if (!resp.ok) continue;
                 const data = await resp.json();
                 data.filename = captureMeta.filename;
@@ -606,7 +617,7 @@ class GalaxyGarden {
                 const repFilename = prof.representative?.filename || prof.latest_capture_filename;
                 if (!repFilename) return;
 
-                const resp = await fetch(`/api/garden/file?name=${encodeURIComponent(repFilename)}`);
+                const resp = await fetch(`${_nadGardenApi('/api/garden/file')}?name=${encodeURIComponent(repFilename)}`);
                 if (!resp.ok) return;
 
                 const data = await resp.json();
@@ -969,7 +980,7 @@ class GalaxyGarden {
         const latestFilename = star.data?._profileMeta?.latest_capture_filename;
         try {
             if (latestFilename && latestFilename !== star.data?.filename) {
-                const resp = await fetch(`/api/garden/file?name=${encodeURIComponent(latestFilename)}`);
+                const resp = await fetch(`${_nadGardenApi('/api/garden/file')}?name=${encodeURIComponent(latestFilename)}`);
                 if (resp.ok) {
                     previewData = await resp.json();
                     previewData.filename = latestFilename;
