@@ -1964,6 +1964,7 @@
 
     let nadIntroTimeline = null;
     let nadIntroGalaxy = null;
+    let nadIntroHasPlayed = false;
 
     function stopNadIntroGalaxy() {
         if (nadIntroGalaxy) {
@@ -1976,7 +1977,13 @@
         const overlay = document.getElementById('nad-garden-intro');
         if (!overlay || typeof gsap === 'undefined') return Promise.resolve();
         if (!isGardenViewActive()) return Promise.resolve();
-        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return Promise.resolve();
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            nadIntroHasPlayed = true;
+            return Promise.resolve();
+        }
+        if (nadIntroHasPlayed) return Promise.resolve();
+
+        nadIntroHasPlayed = true;
 
         if (nadIntroTimeline) {
             nadIntroTimeline.kill();
@@ -2370,7 +2377,7 @@
             const editBtn = document.createElement('button');
             editBtn.className = 'capture-thumb-edit';
             editBtn.innerHTML = '✏️';
-            editBtn.title = 'Editar energía';
+            editBtn.title = 'Editar captura';
             editBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 openEditCaptureStateModal(
@@ -3045,11 +3052,13 @@
 
     // ── Garden: Edit capture state label (text under date) ──
     const editStateModal = document.getElementById('edit-state-modal');
+    const editStateProfileSelect = document.getElementById('edit-state-profile-select');
     const editStateInput = document.getElementById('edit-state-input');
     const editStateSuggestions = document.getElementById('edit-state-suggestions');
     const editStateBtnCancel = document.getElementById('edit-state-btn-cancel');
     const editStateBtnSave = document.getElementById('edit-state-btn-save');
     let pendingEditStateFilename = null;
+    let pendingEditStateProfile = null;
 
     async function loadEditStateSuggestions(currentState) {
         if (!editStateSuggestions || !gardenCurrentProfileName) {
@@ -3089,10 +3098,80 @@
         }
     }
 
+    async function loadEditStateProfileOptions(currentProfile = '') {
+        if (!editStateProfileSelect) return;
+
+        editStateProfileSelect.innerHTML = '';
+        const loadingOpt = document.createElement('option');
+        loadingOpt.value = '';
+        loadingOpt.textContent = 'Cargando perfiles...';
+        editStateProfileSelect.appendChild(loadingOpt);
+        editStateProfileSelect.disabled = true;
+
+        try {
+            const resp = await fetch('/api/profiles/list');
+            const data = await resp.json();
+            if (!data.ok) throw new Error(data.error || 'No se pudieron cargar perfiles');
+
+            const profiles = (data.profiles || [])
+                .map(p => (p.profile_name || '').trim())
+                .filter(Boolean)
+                .sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+
+            const selectedProfile = (currentProfile || gardenCurrentProfileName || '').trim();
+            if (selectedProfile && !profiles.includes(selectedProfile)) {
+                profiles.unshift(selectedProfile);
+            }
+
+            editStateProfileSelect.innerHTML = '';
+            if (!profiles.length) {
+                const emptyOpt = document.createElement('option');
+                emptyOpt.value = selectedProfile;
+                emptyOpt.textContent = selectedProfile || 'Sin perfiles';
+                editStateProfileSelect.appendChild(emptyOpt);
+            } else {
+                profiles.forEach((name) => {
+                    const opt = document.createElement('option');
+                    opt.value = name;
+                    opt.textContent = name;
+                    if (name === selectedProfile) opt.selected = true;
+                    editStateProfileSelect.appendChild(opt);
+                });
+            }
+
+            pendingEditStateProfile = selectedProfile;
+            editStateProfileSelect.disabled = false;
+        } catch (err) {
+            console.warn('No se pudieron cargar perfiles:', err);
+            editStateProfileSelect.innerHTML = '';
+            const fallbackOpt = document.createElement('option');
+            fallbackOpt.value = currentProfile || gardenCurrentProfileName || '';
+            fallbackOpt.textContent = currentProfile || gardenCurrentProfileName || 'Perfil actual';
+            editStateProfileSelect.appendChild(fallbackOpt);
+            pendingEditStateProfile = fallbackOpt.value;
+            editStateProfileSelect.disabled = false;
+        }
+    }
+
+    async function saveCaptureProfile(filename, profileName) {
+        const resp = await fetch('/api/profiles/capture/update-profile', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename, profileName }),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || !data.ok) {
+            throw new Error(data.error || 'Error al mover captura');
+        }
+        return data;
+    }
+
     function openEditCaptureStateModal(filename, currentState = '') {
         pendingEditStateFilename = filename;
+        pendingEditStateProfile = gardenCurrentProfileName || '';
         if (editStateInput) editStateInput.value = (currentState || '').trim();
         if (editStateModal) editStateModal.style.display = 'flex';
+        void loadEditStateProfileOptions(gardenCurrentProfileName || '');
         void loadEditStateSuggestions((currentState || '').trim());
         requestAnimationFrame(() => editStateInput?.focus());
     }
@@ -3100,7 +3179,12 @@
     function closeEditCaptureStateModal() {
         if (editStateModal) editStateModal.style.display = 'none';
         pendingEditStateFilename = null;
+        pendingEditStateProfile = null;
         if (editStateSuggestions) editStateSuggestions.innerHTML = '';
+        if (editStateProfileSelect) {
+            editStateProfileSelect.innerHTML = '';
+            editStateProfileSelect.disabled = false;
+        }
     }
 
     function updateCaptureThumbStateLabel(filename, userState) {
@@ -3130,9 +3214,18 @@
     editStateBtnSave?.addEventListener('click', async () => {
         if (!pendingEditStateFilename) return;
         const userState = editStateInput?.value.trim() || '';
+        const selectedProfile = editStateProfileSelect?.value.trim() || '';
+        const originalProfile = (pendingEditStateProfile || gardenCurrentProfileName || '').trim();
+        const profileChanged = !!selectedProfile && selectedProfile !== originalProfile;
+
         if (!userState) {
             alert('Escribe una energía para esta captura.');
             editStateInput?.focus();
+            return;
+        }
+        if (!selectedProfile) {
+            alert('Selecciona un perfil para esta captura.');
+            editStateProfileSelect?.focus();
             return;
         }
 
@@ -3140,22 +3233,34 @@
         editStateBtnSave.textContent = 'Guardando...';
         try {
             const savedFilename = pendingEditStateFilename;
-            const data = await saveCaptureUserState(savedFilename, userState);
+
+            if (profileChanged) {
+                await saveCaptureProfile(savedFilename, selectedProfile);
+            }
+
+            await saveCaptureUserState(savedFilename, userState);
 
             closeEditCaptureStateModal();
-            updateCaptureThumbStateLabel(savedFilename, userState);
-
-            const card = document.querySelector(`.capture-thumb-card[data-filename="${CSS.escape(savedFilename)}"]`);
-            if (card) card.dataset.userState = userState;
-
             gardenLoaded = false;
 
             if (gardenCurrentJson?.filename === savedFilename) {
                 if (!gardenCurrentJson.metadata) gardenCurrentJson.metadata = {};
                 gardenCurrentJson.metadata.user_state = userState;
+                if (profileChanged) {
+                    gardenCurrentJson.metadata.profile_name = selectedProfile;
+                    gardenCurrentJson.metadata.user_name = selectedProfile;
+                }
             }
 
-            await refreshProfileCapturesList();
+            if (profileChanged) {
+                await loadGarden();
+                await refreshProfileCapturesList();
+            } else {
+                updateCaptureThumbStateLabel(savedFilename, userState);
+                const card = document.querySelector(`.capture-thumb-card[data-filename="${CSS.escape(savedFilename)}"]`);
+                if (card) card.dataset.userState = userState;
+                await refreshProfileCapturesList();
+            }
         } catch (err) {
             alert('Error al guardar: ' + err.message);
         } finally {

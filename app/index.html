@@ -405,8 +405,11 @@
     <div class="delete-modal-overlay" id="edit-state-modal" style="display:none">
         <div class="delete-modal edit-state-modal">
             <div class="delete-modal-icon">✏️</div>
-            <h3>Editar energía</h3>
-            <p>Texto que aparece bajo la fecha en la miniatura de esta captura.</p>
+            <h3>Editar captura</h3>
+            <p>Texto bajo la fecha y perfil al que pertenece esta captura.</p>
+            <label class="edit-state-label" for="edit-state-profile-select">Perfil</label>
+            <select class="edit-state-input edit-state-select" id="edit-state-profile-select"></select>
+            <label class="edit-state-label" for="edit-state-input">Energía</label>
             <input type="text" class="edit-state-input" id="edit-state-input"
                 placeholder="Ej: tranquilo, ansioso, enérgico..." autocomplete="off">
             <div class="edit-state-suggestions" id="edit-state-suggestions"></div>

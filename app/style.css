@@ -3336,9 +3336,24 @@ body::before {
     text-align: center;
 }
 
+.edit-state-label {
+    display: block;
+    margin-top: 0.85rem;
+    margin-bottom: 0.35rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: rgba(232, 223, 255, 0.72);
+}
+
+.edit-state-label:first-of-type {
+    margin-top: 0.75rem;
+}
+
+.edit-state-select,
 .edit-state-input {
     width: 100%;
-    margin-top: 0.75rem;
     padding: 0.65rem 0.85rem;
     border-radius: 10px;
     border: 1px solid rgba(139, 92, 246, 0.25);
@@ -3347,10 +3362,19 @@ body::before {
     font-size: 0.95rem;
 }
 
+.edit-state-select {
+    cursor: pointer;
+}
+
+.edit-state-select:focus,
 .edit-state-input:focus {
     outline: none;
     border-color: rgba(139, 92, 246, 0.55);
     box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+}
+
+.edit-state-input {
+    margin-top: 0;
 }
 
 .edit-state-suggestions {

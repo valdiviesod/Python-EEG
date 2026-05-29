@@ -11,7 +11,7 @@ Integra pulse_local_server.py en un solo proceso.
                POST /api/garden/upload | /api/garden/update-state
 - Profiles API: GET  /api/profiles/list | /api/profiles/captures | /api/profiles/representative
                 POST /api/profiles/rename | /api/profiles/delete | /api/profiles/capture/delete
-                       /api/profiles/capture/update-state
+                       /api/profiles/capture/update-state | /api/profiles/capture/update-profile
 - MIDI API:    POST /api/json-to-midi
 """
 
@@ -682,6 +682,19 @@ class AppHandler(SimpleHTTPRequestHandler):
                 self._send_json(500, {'ok': False, 'error': str(exc)})
             return
 
+        # ── Profiles: move single capture to another profile ──
+        if parsed.path == '/api/profiles/capture/update-profile':
+            try:
+                body = self._read_json_body()
+                self._handle_capture_update_profile(
+                    body.get('filename', ''),
+                    body.get('profileName', ''),
+                )
+            except Exception as exc:
+                traceback.print_exc()
+                self._send_json(500, {'ok': False, 'error': str(exc)})
+            return
+
         self._send_json(404, {'ok': False, 'error': 'Endpoint no encontrado'})
 
     # ── GET ───────────────────────────────────────────────────────────────
@@ -1032,6 +1045,41 @@ class AppHandler(SimpleHTTPRequestHandler):
         except Exception as exc:
             traceback.print_exc()
             self._send_json(500, {'ok': False, 'error': f'Error al actualizar estado: {exc}'})
+
+    def _handle_capture_update_profile(self, filename: str, profile_name: str):
+        if not filename or '..' in filename or '/' in filename or '\\' in filename:
+            self._send_json(400, {'ok': False, 'error': 'Nombre de archivo inválido'})
+            return
+
+        profile_name = (profile_name or '').strip()
+        if not profile_name:
+            self._send_json(400, {'ok': False, 'error': 'El perfil no puede estar vacío'})
+            return
+
+        filepath = resolve_capture_file(filename)
+        if not filepath:
+            self._send_json(404, {'ok': False, 'error': 'Archivo no encontrado'})
+            return
+
+        try:
+            data = json.loads(filepath.read_text(encoding='utf-8'))
+            if 'metadata' not in data:
+                data['metadata'] = {}
+            old_profile = get_capture_profile_name(data)
+            data['metadata']['profile_name'] = profile_name
+            data['metadata']['user_name'] = profile_name
+            filepath.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+            print(f'📁 Captura movida: {filename} → perfil "{profile_name}" (antes: "{old_profile}")')
+            self._send_json(200, {
+                'ok': True,
+                'filename': filename,
+                'profile_name': profile_name,
+                'old_profile_name': old_profile,
+            })
+            schedule_remote_garden_sync()
+        except Exception as exc:
+            traceback.print_exc()
+            self._send_json(500, {'ok': False, 'error': f'Error al mover captura: {exc}'})
 
     def _handle_garden_delete(self, filename: str):
         if not filename or '..' in filename or '/' in filename or '\\' in filename:
