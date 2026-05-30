@@ -954,10 +954,26 @@
         ctx.lineTo(W, midY);
         ctx.stroke();
 
+        // Gamma proxy: high-frequency energy via adjacent-sample differences (30-44 Hz band estimate)
+        const gammaLen = buffers[0].length;
+        const gammaBuf = new Array(gammaLen).fill(0);
+        if (gammaLen >= 2) {
+            for (let ch = 0; ch < 4; ch++) {
+                const b = buffers[ch];
+                for (let i = 1; i < gammaLen; i++) {
+                    gammaBuf[i] += Math.abs(b[i] - b[i - 1]);
+                }
+            }
+            const scale = 1 / 4;
+            for (let i = 0; i < gammaLen; i++) gammaBuf[i] *= scale;
+        }
+        const allBuffers = [...buffers, gammaBuf];
+        const bandLabels = [...CH_NAMES, '⚡ Gamma'];
+
         // Find global min/max for normalization
         let gMin = Infinity, gMax = -Infinity;
-        for (let ch = 0; ch < 4; ch++) {
-            const buf = buffers[ch];
+        for (let ch = 0; ch < 5; ch++) {
+            const buf = allBuffers[ch];
             for (let i = 0; i < buf.length; i++) {
                 if (buf[i] < gMin) gMin = buf[i];
                 if (buf[i] > gMax) gMax = buf[i];
@@ -965,16 +981,17 @@
         }
         if (gMin === Infinity) { gMin = -100; gMax = 100; }
         const range = (gMax - gMin) || 1;
-        const channelOffsets = [-0.17, -0.06, 0.06, 0.17].map(v => v * H);
+        const channelOffsets = [-0.20, -0.10, 0, 0.10, 0.20].map(v => v * H);
         const lineColors = [
             { solid: '#8BF0FF', glow: '139,240,255' },
             { solid: '#C7F284', glow: '199,242,132' },
             { solid: '#FFD36E', glow: '255,211,110' },
             { solid: '#FF8A5B', glow: '255,138,91' },
+            { solid: '#EAB308', glow: '234,179,8' },
         ];
 
-        for (let ch = 0; ch < 4; ch++) {
-            const buf = buffers[ch];
+        for (let ch = 0; ch < 5; ch++) {
+            const buf = allBuffers[ch];
             if (buf.length < 2) continue;
             const bandHeight = H * 0.34;
             const baseY = midY + channelOffsets[ch];
@@ -1015,7 +1032,7 @@
 
             ctx.fillStyle = lineColors[ch].solid;
             ctx.font = `600 ${Math.max(11, H * 0.065)}px Inter, system-ui`;
-            ctx.fillText(CH_NAMES[ch], 12, 18 + ch * 16);
+            ctx.fillText(bandLabels[ch], 12, 18 + ch * 16);
         }
 
         ctx.fillStyle = 'rgba(235,242,255,0.62)';
@@ -1514,7 +1531,7 @@
         pulseMainContent.style.display = 'flex';
 
         renderBandBar(report.bands);
-        renderAnalysis(report);
+        renderAnalysis(report, jsonData.metadata?.user_state || '');
         drawPulse2D();
         switchPulseTab('pulse2d');
         midiLinkedPulse = pulse2d;
@@ -1633,58 +1650,21 @@
     }
 
     // ── Analysis ──
-    function renderAnalysis(report) {
+    function renderAnalysis(report, userState = '') {
         const bands = report.bands;
+        const subtitleHtml = userState
+            ? `<p style="font-size:0.85rem;color:var(--text-dim);margin-bottom:1rem;line-height:1.6">${userState}</p>`
+            : '';
         const html = `
             <div class="analysis-card">
                 <h3>💫 Anatomía de tu Pulso</h3>
-                <p style="font-size:0.85rem;color:var(--text-dim);margin-bottom:1rem;line-height:1.6">
-                    Cada capa de pétalos representa una banda de frecuencia cerebral calculada con precisión desde tu captura.
-                </p>
+                ${subtitleHtml}
                 <div class="band-detail-grid">
                     ${bands.map(band => renderBandCard(band)).join('')}
                 </div>
             </div>
         `;
         analysisContent.innerHTML = html;
-        if (report.emotionMetrics && report.emotionMetrics.length) {
-            renderEmotionChart(report.emotionMetrics);
-        }
-    }
-
-    // ── Emotion Bar Chart ──
-    function renderEmotionChart(emotions) {
-        // Insert before the first .analysis-card inside analysisContent
-        const container = document.createElement('div');
-        container.className = 'emotion-chart';
-        container.innerHTML = `
-            <div class="emotion-chart-title">✨ Tu Estado Emocional</div>
-            ${emotions.map((e, i) => `
-                <div class="emotion-row" style="--delay:${i * 60}ms">
-                    <span class="emotion-emoji" title="${e.description}">${e.emoji}</span>
-                    <span class="emotion-label">${e.label}</span>
-                    <div class="emotion-bar-track">
-                        <div class="emotion-bar-fill" data-target="${Math.round(e.value * 100)}"
-                             style="background:linear-gradient(90deg,${e.color},${e.colorDeep})">
-                        </div>
-                    </div>
-                    <span class="emotion-value">${Math.round(e.value * 100)}%</span>
-                </div>
-            `).join('')}
-        `;
-        analysisContent.insertBefore(container, analysisContent.firstChild);
-
-        // Animate bars after a short paint delay
-        requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-                container.querySelectorAll('.emotion-bar-fill').forEach((fill, i) => {
-                    const target = fill.dataset.target;
-                    setTimeout(() => {
-                        fill.style.width = target + '%';
-                    }, i * 60);
-                });
-            });
-        });
     }
 
     function renderBandCard(band) {
@@ -2494,7 +2474,7 @@
         // Render Analysis Report
         const report = gardenAnalyzer.getReport();
         const gardenAnalysisContent = document.getElementById('garden-analysis-content');
-        gardenAnalysisContent.innerHTML = renderGardenAnalysisHTML(report);
+        gardenAnalysisContent.innerHTML = renderGardenAnalysisHTML(report, captureData.metadata?.user_state || '');
 
         // Switch to 2D tab
         gardenModalTabs.forEach(t => t.classList.toggle('active', t.dataset.gtab === 'garden-2d'));
@@ -2873,14 +2853,15 @@
         }
     }
 
-    function renderGardenAnalysisHTML(report) {
+    function renderGardenAnalysisHTML(report, userState = '') {
         const bands = report.bands;
+        const subtitleHtml = userState
+            ? `<p style="font-size:0.85rem;color:var(--text-dim);margin-bottom:1rem;line-height:1.6">${userState}</p>`
+            : '';
         return `
         <div class="analysis-card">
             <h3>💫 Anatomía de tu Pulso</h3>
-            <p style="font-size:0.85rem;color:var(--text-dim);margin-bottom:1rem;line-height:1.6">
-                Cada capa de pétalos representa una banda de frecuencia cerebral calculada con precisión desde tu captura.
-            </p>
+            ${subtitleHtml}
             <div class="band-detail-grid">
                 ${bands.map(band => renderBandCard(band)).join('')}
             </div>

@@ -2297,76 +2297,6 @@ body::before {
 }
 
 
-/* ── Emotion Bar Chart ── */
-.emotion-chart {
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 1.5rem;
-    margin-bottom: 1.5rem;
-}
-
-.emotion-chart-title {
-    font-size: 1.05rem;
-    font-weight: 600;
-    color: var(--text);
-    margin-bottom: 1.25rem;
-}
-
-.emotion-row {
-    display: grid;
-    grid-template-columns: 28px 140px 1fr 48px;
-    align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 0.6rem;
-}
-
-.emotion-emoji {
-    font-size: 1rem;
-    text-align: center;
-    cursor: default;
-}
-
-.emotion-label {
-    font-size: 0.85rem;
-    color: var(--text);
-    font-weight: 500;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.emotion-bar-track {
-    height: 22px;
-    background: var(--border);
-    border-radius: 6px;
-    overflow: hidden;
-}
-
-.emotion-bar-fill {
-    height: 100%;
-    border-radius: 6px;
-    width: 0%;
-    transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.emotion-value {
-    font-size: 0.8rem;
-    color: var(--text-dim);
-    text-align: right;
-    font-weight: 600;
-}
-
-@media (max-width: 700px) {
-    .emotion-row {
-        grid-template-columns: 24px 110px 1fr 40px;
-        gap: 0.35rem;
-    }
-
-    .emotion-label {
-        font-size: 0.78rem;
-    }
-}
 
 /* ═══════════════════════════════════════════════════════════════════════════
    Jelly Galaxy Restore Overrides
@@ -2550,13 +2480,6 @@ body::after {
 }
 
 @media (max-width: 380px) {
-    .emotion-row {
-        grid-template-columns: 22px 90px 1fr 38px;
-    }
-
-    .emotion-chart {
-        padding: 1rem;
-    }
 }
 
 /* ─── Danger Button ──────────────────────────────────────────────────────── */
@@ -2690,7 +2613,6 @@ body::after {
 .upload-card,
 .setup-card,
 .results-card,
-.emotion-chart,
 .band-detail-card,
 .garden-toolbar,
 .garden-empty,
@@ -2722,7 +2644,6 @@ body::after {
 .header,
 .global-tabs,
 .upload-card,
-.emotion-chart,
 .band-detail-card,
 .garden-toolbar,
 .garden-empty,
@@ -2772,7 +2693,6 @@ body::after {
 .stat-label,
 .counter-label,
 .ch-stat-val,
-.emotion-value,
 .garden-empty p,
 .rename-modal p,
 .delete-modal p,
