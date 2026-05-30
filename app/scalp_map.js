@@ -23,20 +23,21 @@ class ScalpMap {
             { line: '#22C55E', glow: '34,197,94'   }, // AF7  → Flujo   🌌 verde
             { line: '#EC4899', glow: '236,72,153'  }, // AF8  → Pulso   💫 rosa
             { line: '#F97316', glow: '249,115,22'  }, // TP10 → Trazo   ☀️ durazno
+            { line: '#EAB308', glow: '234,179,8'   }, // Gamma proxy    ⚡ amarillo
         ];
-        this.names = ['TP9', 'AF7', 'AF8', 'TP10'];
-        this.histories = Array.from({ length: 4 }, () => []);
+        this.names = ['TP9', 'AF7', 'AF8', 'TP10', '⚡ Gamma'];
+        this.histories = Array.from({ length: 5 }, () => []);
         this.trailCount = 10;
         this.maxPoints = 600;
         this.phase = 0;
         this.running = false;
         this.animId = null;
-        this.smooth = [0, 0, 0, 0];
+        this.smooth = [0, 0, 0, 0, 0];
         this.alpha = 0.12; // slower smoothing = longer visible wave crests
-        this.lastValues = [0, 0, 0, 0];
+        this.lastValues = [0, 0, 0, 0, 0];
         this.min = Infinity;
         this.max = -Infinity;
-        this.noiseSeed = Array.from({ length: 4 }, (_, i) => i * 1.618);
+        this.noiseSeed = Array.from({ length: 5 }, (_, i) => i * 1.618);
         this.sparkles = [];
         this._W = 0;
         this._H = 0;
@@ -61,6 +62,18 @@ class ScalpMap {
             if (history.length > this.maxPoints) history.splice(0, history.length - this.maxPoints);
         }
 
+        // Gamma proxy: average high-frequency energy across 4 channels (adjacent-sample differences)
+        let gammaRaw = 0;
+        for (let i = 0; i < 4; i++) {
+            const h = this.histories[i];
+            if (h.length >= 2) gammaRaw += Math.abs(h[h.length - 1] - h[h.length - 2]);
+        }
+        gammaRaw /= 4;
+        this.smooth[4] = this.smooth[4] * (1 - this.alpha) + gammaRaw * this.alpha;
+        const gammaHistory = this.histories[4];
+        gammaHistory.push(this.smooth[4]);
+        if (gammaHistory.length > this.maxPoints) gammaHistory.splice(0, gammaHistory.length - this.maxPoints);
+
         const range = this.max - this.min;
         if (range > 0) {
             this.min += range * 0.0008;
@@ -79,7 +92,7 @@ class ScalpMap {
     }
 
     _seedHistory() {
-        for (let ch = 0; ch < 4; ch++) {
+        for (let ch = 0; ch < 5; ch++) {
             const history = this.histories[ch];
             history.length = 0;
             for (let i = 0; i < this.maxPoints; i++) {
@@ -216,9 +229,9 @@ class ScalpMap {
         const midY = H * 0.5;
         const range = Math.max(1, this.max - this.min);
         // tall band — waves span most of the canvas height
-        const bandHeight = H * 0.46;
-        // channels spread across full height for maximum visual separation
-        const channelOffsets = [-0.24, -0.08, 0.08, 0.24].map(v => v * H);
+        const bandHeight = H * 0.38;
+        // 5 channels spread across full height for maximum visual separation
+        const channelOffsets = [-0.28, -0.14, 0, 0.14, 0.28].map(v => v * H);
 
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
@@ -226,7 +239,7 @@ class ScalpMap {
         // global slow swell shared by all channels — gives cohesive "breathing" feel
         const globalSwell = Math.sin(this.phase * 0.38) * H * 0.035;
 
-        for (let ch = 0; ch < 4; ch++) {
+        for (let ch = 0; ch < 5; ch++) {
             const history = this.histories[ch];
             if (history.length < 2) continue;
 
@@ -310,8 +323,9 @@ class ScalpMap {
         ctx.font = '600 12px Inter, system-ui, sans-serif';
         ctx.textBaseline = 'middle';
 
+        const legendStep = Math.min(82, (W - padX * 2) / this.names.length);
         for (let i = 0; i < this.names.length; i++) {
-            const x = padX + i * 82;
+            const x = padX + i * legendStep;
             const y = baseY;
             ctx.fillStyle = `rgba(${this.colors[i].glow}, 0.16)`;
             ctx.beginPath();
